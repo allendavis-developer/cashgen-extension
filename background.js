@@ -1,0 +1,180 @@
+// background.js - Service Worker for Chrome Extension
+
+const SCRAPER_CONFIGS = {
+  CashConverters: {
+    baseUrl: "https://www.cashconverters.co.uk",
+    searchUrl: "https://www.cashconverters.co.uk/search-results?Sort=price&page=1&f%5Bcategory%5D%5B0%5D=all&f%5Blocations%5D%5B0%5D=all&query={query}",
+    selectors: {
+      price: ".product-item__price",
+      title: ".product-item__title__description",
+      shop: ".product-item__title__location",
+      url: ".product-item__title, .product-item__image a",
+      container: ".product-item-wrapper"
+    }
+  },
+  CashGenerator: {
+    baseUrl: "https://cashgenerator.co.uk",
+    searchUrl: "https://cashgenerator.co.uk/pages/search-results-page?q={query}&tab=products&sort_by=price&sort_order=asc&page=1",
+    selectors: {
+      price: ".snize-price.money",
+      title: ".snize-title",
+      shop: ".snize-attribute",
+      url: ".snize-view-link"
+    }
+  },
+  CEX: {
+    baseUrl: "https://uk.webuy.com",
+    searchUrl: "https://uk.webuy.com/search?stext={query}&Grade=B",
+    selectors: {
+      price: ".product-main-price",
+      title: ".card-title",
+      url: ".card-title a"
+    }
+  },
+  eBay: {
+    baseUrl: "https://www.ebay.co.uk",
+    searchUrl: "https://www.ebay.co.uk/sch/i.html?_nkw={query}&_sacat=0&_from=R40&LH_ItemCondition=3000&LH_PrefLoc=1&LH_Sold=1&LH_Complete=1",
+    selectors: {
+      price: ".s-card__price, .su-styled-text.primary.bold.large-1.s-card__price",
+      title: ".s-card__title",
+      url: ".su-card-container__content > a",
+      container: "#srp-river-results > ul > li"
+    }
+  }
+};
+
+// Store active scraping sessions
+const activeSessions = new Map();
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  console.log("Background received:", message);
+
+  if (message.action === "scrape") {
+    handleScrapeRequest(message.data, sendResponse);
+    return true; // Keep channel open for async response
+  }
+
+  if (message.action === "scrapedData") {
+    handleScrapedData(message.data, sender.tab.id);
+    return false;
+  }
+});
+
+async function handleScrapeRequest(data, sendResponse) {
+  const { query, competitors } = data;
+  const sessionId = Date.now().toString();
+  
+  // Initialize session storage
+  activeSessions.set(sessionId, {
+    query,
+    competitors,
+    results: [],
+    completed: 0,
+    total: competitors.length
+  });
+
+  try {
+    // Open tabs for each competitor
+    const tabPromises = competitors.map(async (competitor) => {
+      const config = SCRAPER_CONFIGS[competitor];
+      if (!config) {
+        console.error(`No config found for ${competitor}`);
+        return null;
+      }
+
+      const url = config.searchUrl.replace("{query}", encodeURIComponent(query));
+      
+      // Create tab and inject scraping logic
+      const tab = await chrome.tabs.create({ url, active: false });
+      
+      // Wait for tab to load, then inject scraper
+      chrome.tabs.onUpdated.addListener(function listener(tabId, changeInfo) {
+        if (tabId === tab.id && changeInfo.status === 'complete') {
+          chrome.tabs.onUpdated.removeListener(listener);
+          
+          // Execute scraping in content script
+          chrome.tabs.sendMessage(tab.id, {
+            action: "startScraping",
+            competitor,
+            config: config.selectors,
+            sessionId
+          });
+        }
+      });
+
+      return tab;
+    });
+
+    await Promise.all(tabPromises);
+
+    // Poll for completion
+    const checkCompletion = setInterval(() => {
+      const session = activeSessions.get(sessionId);
+      if (session && session.completed >= session.total) {
+        clearInterval(checkCompletion);
+        sendResponse({
+          success: true,
+          results: session.results
+        });
+        activeSessions.delete(sessionId);
+        
+        // Close all tabs
+        chrome.tabs.query({}, (tabs) => {
+          tabs.forEach(tab => {
+            if (tab.url && competitors.some(c => 
+              tab.url.includes(SCRAPER_CONFIGS[c]?.baseUrl)
+            )) {
+              chrome.tabs.remove(tab.id);
+            }
+          });
+        });
+      }
+    }, 500);
+
+    // Timeout after 30 seconds
+    setTimeout(() => {
+      clearInterval(checkCompletion);
+      const session = activeSessions.get(sessionId);
+      if (session) {
+        sendResponse({
+          success: true,
+          results: session.results,
+          partial: true
+        });
+        activeSessions.delete(sessionId);
+      }
+    }, 30000);
+
+  } catch (error) {
+    console.error("Scraping error:", error);
+    sendResponse({
+      success: false,
+      error: error.message
+    });
+  }
+}
+
+function handleScrapedData(data, tabId) {
+  const { sessionId, competitor, results } = data;
+  const session = activeSessions.get(sessionId);
+  
+  if (session) {
+    session.results.push(...results);
+    session.completed++;
+    console.log(`${competitor} scraping complete. ${session.completed}/${session.total}`);
+  }
+}
+
+// Helper function to parse prices
+function parsePrice(text) {
+  try {
+    if (text.includes(' to ')) {
+      text = text.split(' to ')[0];
+    }
+    const cleaned = text.replace(/[£,()]/g, '').trim();
+    const match = cleaned.match(/\d+\.?\d*/);
+    return match ? parseFloat(match[0]) : null;
+  } catch {
+    return null;
+  }
+}

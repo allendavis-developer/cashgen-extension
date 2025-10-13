@@ -1,0 +1,48 @@
+{
+  "manifest_version": 3,
+  "name": "Price Scraper Extension",
+  "version": "1.0.0",
+  "description": "Scrape competitor prices from multiple websites",
+  "permissions": [
+    "tabs",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://www.cashconverters.co.uk/*",
+    "https://cashgenerator.co.uk/*",
+    "https://uk.webuy.com/*",
+    "https://www.ebay.co.uk/*",
+    "http://localhost:*/*",
+    "http://127.0.0.1:*/*",
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://127.0.0.1:*/*"
+      ],
+      "js": ["webpage-bridge.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://www.cashconverters.co.uk/*",
+        "https://cashgenerator.co.uk/*",
+        "https://uk.webuy.com/*",
+        "https://www.ebay.co.uk/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["content.js"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
