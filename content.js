@@ -25,6 +25,8 @@ async function scrapePage(competitor, selectors, sessionId) {
       results.push(...scrapeCashConverters(selectors));
     } else if (competitor === "eBay") {
       results.push(...scrapeEbay(selectors));
+    } else if (competitor === "CashGenerator") {
+      results.push(...scrapeCashGenerator(selectors));
     } else {
       results.push(...scrapeGeneric(competitor, selectors));
     }
@@ -159,15 +161,13 @@ function scrapeGeneric(competitor, selectors) {
   // Get URLs
   let urls = [];
   if (selectors.url) {
-    urls = Array.from(titleElements).map(titleEl => {
-      const anchor = titleEl.tagName === 'A' ? titleEl : titleEl.querySelector('a');
-      let href = anchor ? anchor.href : null;
-      
+    const urlElements = document.querySelectorAll(selectors.url);
+    urls = Array.from(urlElements).map(urlEl => {
+      let href = urlEl.href || null;
       if (href && href.startsWith('/')) {
         const baseUrl = SCRAPER_CONFIGS[competitor]?.baseUrl || '';
         href = baseUrl + href;
       }
-      
       return href;
     });
   } else {
@@ -190,6 +190,47 @@ function scrapeGeneric(competitor, selectors) {
 
   return results;
 }
+
+function scrapeCashGenerator(selectors) {
+  const results = [];
+  const cards = document.querySelectorAll('.snize-product');
+
+  cards.forEach(card => {
+    try {
+      const urlEl = card.querySelector('.snize-view-link');
+      const titleEl = card.querySelector('.snize-title');
+      const priceEl = card.querySelector('.snize-price.money');
+      const shopEl = card.querySelector('.snize-attribute');
+
+      if (!titleEl || !priceEl) return;
+
+      const title = titleEl.textContent.trim();
+      const priceText = priceEl.textContent.trim();
+      const price = parsePrice(priceText);
+      const store = shopEl ? shopEl.textContent.trim() : null;
+
+      let url = urlEl ? urlEl.getAttribute('href') : null;
+      if (url && url.startsWith('/')) {
+        url = 'https://cashgenerator.co.uk' + url;
+      }
+
+      if (title && price) {
+        results.push({
+          competitor: 'CashGenerator',
+          title,
+          price,
+          store,
+          url
+        });
+      }
+    } catch (e) {
+      console.error('Error parsing CashGenerator card:', e);
+    }
+  });
+
+  return results;
+}
+
 
 function parsePrice(text) {
   try {
