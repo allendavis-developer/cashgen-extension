@@ -101,6 +101,112 @@ async function getSummaryDetail(label) {
   }
 }
 
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+
+  if (message.action === "updateExternallyListed") {
+    handleExternallyListedUpdate(message.data.serial_number, sendResponse);
+    return true;
+  }
+});
+
+async function handleExternallyListedUpdate(serial_number) {
+  console.log(`[NOSPOS] Updating externally listed for ${serial_number}`);
+
+  // Save pending update so it survives reload
+  chrome.storage.local.set({ pendingExternallyListed: serial_number });
+
+  try {
+    // Wait for page load
+    await waitForLoad();
+    await sleep(500);
+
+      // Only search if NOT already on edit page
+    if (!/\/stock\/\d+\/edit/.test(window.location.pathname)) {
+      const searchInput = document.querySelector("#stocksearchandfilter-query");
+      if (!searchInput) throw new Error("Search input not found");
+
+      searchInput.value = serial_number;
+      searchInput.dispatchEvent(new Event("input", { bubbles: true }));
+
+      const form = searchInput.closest("form");
+      if (form) form.submit();
+      else searchInput.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', keyCode: 13, bubbles: true }));
+
+      var previousUrl = window.location.href;
+      await waitForEditPage(previousUrl);
+      console.log("[NOSPOS] Edit page loaded after search");
+    } else {
+      console.log("[NOSPOS] Already on edit page, skipping search");
+      await waitForEditPage(); // just ensure fully loaded
+    }
+
+    // Wait for edit page to load
+    console.log("[NOSPOS] Edit page loaded");
+
+    // Wait for checkbox to be available and enabled
+    await waitForSelector("#stock-externally_listed_at", 5000);
+    const checkbox = document.querySelector("#stock-externally_listed_at");
+    const checkboxLabel = document.querySelector("label[for='stock-externally_listed_at']");
+    if (!checkbox || !checkboxLabel) throw new Error("Externally Listed checkbox not found");
+
+    await new Promise(resolve => {
+      const interval = setInterval(() => {
+        if (!checkbox.disabled) {
+          clearInterval(interval);
+          resolve();
+        }
+      }, 100);
+    });
+
+    // Click checkbox if not already checked
+    let changed = false;
+    if (!checkbox.checked) {
+      checkboxLabel.click();
+      console.log("[NOSPOS] Externally Listed checkbox clicked");
+      changed = true;
+      await sleep(300);
+    } else {
+      console.log("[NOSPOS] Already marked as externally listed");
+    }
+
+    if (changed) {
+      const saveButton = document.querySelector("button.btn.btn-blue[type='submit']");
+      if (!saveButton) throw new Error("Save button not found");
+      saveButton.click();
+      console.log("[NOSPOS] Save button clicked");
+      
+      // wait for confirmation
+      await new Promise(resolve => {
+        const checkInterval = setInterval(() => {
+          if (document.querySelector(".alert-success") || !window.location.href.includes("/edit")) {
+            clearInterval(checkInterval);
+            resolve();
+          }
+        }, 500);
+
+        setTimeout(() => clearInterval(checkInterval) || resolve(), 5000);
+      });
+    } else {
+      console.log("[NOSPOS] No change needed, skipping save");
+    }
+
+    console.log("[NOSPOS] Successfully updated externally listed status");
+
+    // Remove pending update from storage
+    chrome.storage.local.remove("pendingExternallyListed");
+
+    // Navigate back to search page
+    await sleep(1000);
+    window.location.href = "https://nospos.com/stock/search";
+
+    return { success: true };
+
+  } catch (error) {
+    console.error("[NOSPOS] Error updating externally listed:", error);
+    return { success: false, error: error.message };
+  }
+}
+
 async function getSpecifications() {
   const specs = {};
   try {
@@ -165,7 +271,8 @@ async function processNextBarcode() {
     await waitForLoad();
     await sleep(500);
 
-    // Decide which input to use based on page type let searchInput = null; 
+    // Decide which input to use based on page type 
+    let searchInput = null; 
     if (/\/stock\/\d+\/edit/.test(window.location.pathname)) { 
         // Edit page search input 
         searchInput = document.querySelector("#searchform-query"); 
@@ -258,5 +365,19 @@ chrome.storage.local.get(["sessionId", "barcodesToProcess", "currentIndex"], (st
     } else {
       window.location.href = SEARCH_PAGE;
     }
+  }
+});
+
+// ----- Restore pending externally listed update on content script reload -----
+chrome.storage.local.get("pendingExternallyListed", (state) => {
+  const serial_number = state.pendingExternallyListed;
+  if (!serial_number) return;
+
+  if (/\/stock\/\d+\/edit/.test(window.location.pathname)) {
+    console.log(`[NOSPOS] Resuming pending externally listed update for ${serial_number}`);
+    handleExternallyListedUpdate(serial_number);
+  } else {
+    // Already done or on search page — clear pending
+    chrome.storage.local.remove("pendingExternallyListed");
   }
 });

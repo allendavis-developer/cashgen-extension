@@ -72,7 +72,174 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     handleNosposReady(message.data, sender.tab.id);
     return false;
   }
+
+  if (message.action === "createWebEposListing") {
+    handleWebEposListing(message.data, sendResponse);
+    return true;
+  }
+
+  if (message.action === "updateNosposCheckbox") {
+    handleNosposCheckboxUpdate(message.data, sendResponse);
+    return true;
+  }
+
+  if (message.action === "listingCompleted") {
+    console.log("[Background] WebEpos listing completed:", message.data);
+  }
+
 });
+
+async function handleWebEposListing(data, sendResponse) {
+  const { item_name, description, price, serial_number, branch } = data;
+
+  console.log("[WebEpos] Starting listing automation...");
+
+  // Validate required fields
+  if (!item_name || !description || !price) {
+    sendResponse({
+      success: false,
+      error: "Missing required fields: item_name, description, or price"
+    });
+    return;
+  }
+
+  try {
+    // Find or create WebEpos tab
+    const tabs = await chrome.tabs.query({ url: "https://webepos.cashgenerator.co.uk/*" });
+    let webeposTab;
+
+    if (tabs.length > 0) {
+      webeposTab = tabs[0];
+      await chrome.tabs.update(webeposTab.id, { 
+        active: true, 
+        url: "https://webepos.cashgenerator.co.uk/products/new" 
+      });
+    } else {
+      webeposTab = await chrome.tabs.create({ 
+        url: "https://webepos.cashgenerator.co.uk/products/new",
+        active: true 
+      });
+    }
+
+    // Track tab update to wait for page load
+    const listener = async (tabId, changeInfo, tab) => {
+      if (tabId !== webeposTab.id || changeInfo.status !== "complete") return;
+
+      chrome.tabs.onUpdated.removeListener(listener);
+
+      const currentUrl = tab.url || "";
+
+      if (currentUrl.includes("/login")) {
+        sendResponse({
+          success: false,
+          error: "Please log in to WebEpos before creating listings"
+        });
+        return;
+      }
+
+      // Send message to content script like NOSPOS
+      chrome.tabs.sendMessage(webeposTab.id, {
+        action: "startWebEposListing",
+        data: { item_name, description, price, serial_number, branch }
+      }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.error("[WebEpos] Error sending message:", chrome.runtime.lastError);
+          sendResponse({
+            success: false,
+            error: chrome.runtime.lastError.message
+          });
+        } else {
+          sendResponse(response);
+        }
+      });
+    };
+
+    chrome.tabs.onUpdated.addListener(listener);
+
+  } catch (error) {
+    console.error("[WebEpos] Error:", error);
+    sendResponse({
+      success: false,
+      error: error.message
+    });
+  }
+}
+
+
+async function handleNosposCheckboxUpdate(data, sendResponse) {
+  const { serial_number } = data;
+
+  console.log(`[NOSPOS] Updating checkbox for barcode ${serial_number}...`);
+
+  try {
+    // Find or create NOSPOS tab
+    const tabs = await chrome.tabs.query({ url: "https://nospos.com/*" });
+    let nosposTab;
+
+    if (tabs.length > 0) {
+      nosposTab = tabs[0];
+      await chrome.tabs.update(nosposTab.id, { 
+        active: true,
+        url: "https://nospos.com/stock/search"
+      });
+    } else {
+      nosposTab = await chrome.tabs.create({ 
+        url: "https://nospos.com/stock/search",
+        active: true 
+      });
+    }
+
+    // Wait for page load
+    chrome.tabs.onUpdated.addListener(function listener(tabId, changeInfo, tab) {
+      if (tabId === nosposTab.id && changeInfo.status === 'complete') {
+        const currentUrl = tab.url || "";
+
+        // 🔴 INSTANT CLOSE if login page detected
+        if (currentUrl.includes("/site/standard-login") || currentUrl.includes("/login")) {
+          console.warn("[NOSPOS] Login page detected - closing tab");
+          chrome.tabs.onUpdated.removeListener(listener);
+          chrome.tabs.remove(nosposTab.id);
+          
+          sendResponse({
+            success: false,
+            error: "Please log in to NOSPOS before updating listings"
+          });
+          return;
+        }
+
+        // Wait for intermediate redirects
+        if (currentUrl === "https://nospos.com" || currentUrl === "https://nospos.com/") {
+          // Will redirect, wait for next load
+          return;
+        }
+
+        if (currentUrl.includes("/stock/search")) {
+          chrome.tabs.onUpdated.removeListener(listener);
+          
+          setTimeout(() => {
+            chrome.tabs.sendMessage(nosposTab.id, {
+              action: "updateExternallyListed",
+              data: { serial_number }
+            }, (response) => {
+              if (chrome.runtime.lastError) {
+                console.error("[NOSPOS] Error:", chrome.runtime.lastError);
+              }
+              console.log("[NOSPOS] Checkbox update initiated");
+            });
+          }, 1500);
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error("[NOSPOS] Error:", error);
+    sendResponse({
+      success: false,
+      error: error.message
+    });
+  }
+}
+
 
 async function handleScrapeRequest(data, sendResponse) {
   const { query, competitors } = data;

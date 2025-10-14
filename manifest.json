@@ -46,7 +46,15 @@
       ],
       "js": ["nospos-scraper.js"],
       "run_at": "document_idle"
+    },
+    {
+    "matches": [
+      "https://webepos.cashgenerator.co.uk/*"
+    ],
+    "js": ["webepos-automation.js"],
+    "run_at": "document_idle"
     }
+
   ],
   "web_accessible_resources": [
     {

@@ -21,6 +21,7 @@ async function scrapePage(competitor, selectors, sessionId) {
   const results = [];
 
   try {
+    // TODO: Can you just turn all of this into one function man
     if (competitor === "CashConverters") {
       results.push(...scrapeCashConverters(selectors));
     } else if (competitor === "eBay") {
