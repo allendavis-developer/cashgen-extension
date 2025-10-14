@@ -201,19 +201,37 @@ async function handleNosposRequest(data, sendResponse) {
     const session = activeSessions.get(sessionId);
     session.tabId = nosposTab.id;
 
-    // Wait for tab to load and content script to be ready
-    chrome.tabs.onUpdated.addListener(function listener(tabId, changeInfo) {
+    chrome.tabs.onUpdated.addListener(function listener(tabId, changeInfo, tab) {
       if (tabId === nosposTab.id && changeInfo.status === 'complete') {
-        chrome.tabs.onUpdated.removeListener(listener);
-        setTimeout(() => {
-          chrome.tabs.sendMessage(nosposTab.id, {
-            action: "initScraping",
-            barcodes,
-            sessionId
-          });
-        }, 1000);
-      }
+          const currentUrl = tab.url || "";
+          
+          // 🧠 Detect login page
+          if (currentUrl.includes("/site/standard-login") || currentUrl.includes("/login")) {
+            console.warn("[NOSPOS] User not logged in, aborting scrape.");
+
+            chrome.tabs.onUpdated.removeListener(listener);
+            chrome.tabs.remove(nosposTab.id);
+
+            activeSessions.delete(sessionId);
+            sendResponse({
+              success: false,
+              error: "Please log in to NOSPOS before starting a scrape."
+            });
+            return;
+          }
+
+          // ✅ Logged in — start scraping
+          chrome.tabs.onUpdated.removeListener(listener);
+          setTimeout(() => {
+            chrome.tabs.sendMessage(nosposTab.id, {
+              action: "initScraping",
+              barcodes,
+              sessionId
+            });
+          }, 1000);
+        }
     });
+
 
     // Check for completion
     const checkCompletion = setInterval(() => {

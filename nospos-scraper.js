@@ -45,17 +45,35 @@ function waitForSelector(selector, timeout = 5000) {
   });
 }
 
-function waitForEditPage(timeout = 15000) {
+async function waitForEditPage(previousUrl = null, timeout = 20000) {
+  const start = Date.now();
+
   return new Promise((resolve, reject) => {
-    const start = Date.now();
-    const check = () => {
-      if (/\/stock\/\d+\/edit/.test(window.location.pathname)) resolve();
-      else if (Date.now() - start > timeout) reject(new Error("Timeout waiting for edit page"));
-      else requestAnimationFrame(check);
+    const check = async () => {
+      const currentUrl = window.location.href;
+      const urlChanged = previousUrl ? currentUrl !== previousUrl : /\/stock\/\d+\/edit/.test(window.location.pathname);
+
+      if (urlChanged && /\/stock\/\d+\/edit/.test(window.location.pathname)) {
+        // Optionally wait until #stock-name or .detail-view has new content
+        try {
+          await waitForSelector("#stock-name", 10000);
+          const nameInput = document.querySelector("#stock-name");
+          if (nameInput && nameInput.value.trim().length > 0) {
+            return resolve();
+          }
+        } catch {}
+      }
+
+      if (Date.now() - start > timeout) {
+        return reject(new Error("Timeout waiting for edit page to fully load"));
+      }
+
+      requestAnimationFrame(check);
     };
     check();
   });
 }
+
 
 async function getInputValue(selector) {
   try {
@@ -147,9 +165,13 @@ async function processNextBarcode() {
     await waitForLoad();
     await sleep(500);
 
-    // Fill search input
-    const searchInput = document.querySelector("input#stocksearchandfilter-query");
-    if (!searchInput) throw new Error("Search input not found");
+    // Decide which input to use based on page type let searchInput = null; 
+    if (/\/stock\/\d+\/edit/.test(window.location.pathname)) { 
+        // Edit page search input 
+        searchInput = document.querySelector("#searchform-query"); 
+    } else if (window.location.href.includes("/stock/search")) { 
+        // Main search page 
+        searchInput = document.querySelector("#stocksearchandfilter-query"); }
 
     searchInput.value = barcode;
     searchInput.dispatchEvent(new Event("input", { bubbles: true }));
@@ -163,9 +185,11 @@ async function processNextBarcode() {
       const searchBtn = document.querySelector('button[type="submit"], .btn-search');
       if (searchBtn) searchBtn.click();
     }
+    
+    const previousUrl = window.location.href;
 
     // Wait until edit page loads
-    await waitForEditPage();
+    await waitForEditPage(previousUrl);
 
     const data = await extractStockData(barcode);
     console.log("[NOSPOS] Extracted data:", data);
