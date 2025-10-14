@@ -400,31 +400,53 @@ async function handleNosposRequest(data, sendResponse) {
     });
 
 
-    // Check for completion
-    const checkCompletion = setInterval(() => {
+       // ✅ Check for completion
+    const checkCompletion = setInterval(async () => {
       const session = activeSessions.get(sessionId);
-      if (session && session.results.length >= barcodes.length) {
+      if (session && session.results.length >= session.total) {
         clearInterval(checkCompletion);
+
+        console.log(`[NOSPOS] Scrape complete for all ${session.total} barcodes ✅`);
         sendResponse({
           success: true,
           results: session.results
         });
+
+        // 🔒 Close the NOSPOS tab automatically
+        try {
+          await chrome.tabs.remove(session.tabId);
+          console.log("[NOSPOS] Tab closed after scrape ✅");
+        } catch (err) {
+          console.warn("[NOSPOS] Could not close tab:", err);
+        }
+
         activeSessions.delete(sessionId);
       }
     }, 500);
 
-    setTimeout(() => {
+    // 🕒 Timeout safeguard — 5 minutes max
+    setTimeout(async () => {
       clearInterval(checkCompletion);
       const session = activeSessions.get(sessionId);
       if (session) {
+        console.warn("[NOSPOS] Scrape timed out — partial results returned");
         sendResponse({
           success: true,
           results: session.results,
           partial: true
         });
+
+        // Close tab even if partial
+        try {
+          await chrome.tabs.remove(session.tabId);
+          console.log("[NOSPOS] Tab closed after timeout ⏰");
+        } catch (err) {
+          console.warn("[NOSPOS] Could not close tab after timeout:", err);
+        }
+
         activeSessions.delete(sessionId);
       }
-    }, 300000);
+    }, 300000); // 5 min timeout
 
   } catch (error) {
     console.error("[NOSPOS] Error:", error);
@@ -434,6 +456,7 @@ async function handleNosposRequest(data, sendResponse) {
     });
   }
 }
+
 
 function handleNosposData(data) {
   const { sessionId, result } = data;
