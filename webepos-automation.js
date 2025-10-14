@@ -89,11 +89,34 @@ async function fillProductForm(data) {
   // Select store
   try {
     const storeSelect = await waitForSelector("#storeId", 5000);
+
+    // Wait until the dropdown actually has all its options
+    let attempts = 0;
+    while (storeSelect.options.length < 4 && attempts < 10) {
+      console.log(`[WebEpos] Waiting for store options to load... (${attempts + 1})`);
+      await sleep(300);
+      attempts++;
+    }
+
     const storeId = BRANCH_TO_STORE[branch] || BRANCH_TO_STORE["Warrington"];
-    console.log(BRANCH_TO_STORE[branch]);
-    storeSelect.value = storeId;
-    storeSelect.dispatchEvent(new Event('change', { bubbles: true }));
-    console.log(`[WebEpos] Store set to ${branch}`);
+    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+      window.HTMLSelectElement.prototype,
+      'value'
+    ).set;
+
+    // Ensure the desired store option actually exists
+    const optionExists = [...storeSelect.options].some(opt => opt.value === storeId);
+    if (!optionExists) {
+      console.warn(`[WebEpos] Store ID ${storeId} not found in dropdown after waiting`);
+    } else {
+      // Use native setter so React picks it up
+      nativeInputValueSetter.call(storeSelect, storeId);
+      storeSelect.dispatchEvent(new Event('input', { bubbles: true }));
+      storeSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      console.log(`[WebEpos] Store set to ${branch} (${storeId})`);
+    }
+
+    console.log(`[WebEpos] Store set to ${branch} (${storeId})`);
   } catch (error) {
     console.warn("[WebEpos] Could not set store:", error);
   }
