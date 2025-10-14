@@ -43,7 +43,6 @@ const SCRAPER_CONFIGS = {
   }
 };
 
-// Store active scraping sessions
 const activeSessions = new Map();
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -51,11 +50,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.action === "scrape") {
     handleScrapeRequest(message.data, sendResponse);
-    return true; // Keep channel open for async response
+    return true;
   }
 
   if (message.action === "scrapedData") {
     handleScrapedData(message.data, sender.tab.id);
+    return false;
+  }
+
+  if (message.action === "scrapeNosposBarcodes") {
+    handleNosposRequest(message.data, sendResponse);
+    return true;
+  }
+
+  if (message.action === "nosposData") {
+    handleNosposData(message.data);
+    return false;
+  }
+
+  if (message.action === "nosposReady") {
+    handleNosposReady(message.data, sender.tab.id);
     return false;
   }
 });
@@ -64,7 +78,6 @@ async function handleScrapeRequest(data, sendResponse) {
   const { query, competitors } = data;
   const sessionId = Date.now().toString();
   
-  // Initialize session storage
   activeSessions.set(sessionId, {
     query,
     competitors,
@@ -74,7 +87,6 @@ async function handleScrapeRequest(data, sendResponse) {
   });
 
   try {
-    // Open tabs for each competitor
     const tabPromises = competitors.map(async (competitor) => {
       const config = SCRAPER_CONFIGS[competitor];
       if (!config) {
@@ -83,16 +95,11 @@ async function handleScrapeRequest(data, sendResponse) {
       }
 
       const url = config.searchUrl.replace("{query}", encodeURIComponent(query));
-      
-      // Create tab and inject scraping logic
       const tab = await chrome.tabs.create({ url, active: false });
       
-      // Wait for tab to load, then inject scraper
       chrome.tabs.onUpdated.addListener(function listener(tabId, changeInfo) {
         if (tabId === tab.id && changeInfo.status === 'complete') {
           chrome.tabs.onUpdated.removeListener(listener);
-          
-          // Execute scraping in content script
           chrome.tabs.sendMessage(tab.id, {
             action: "startScraping",
             competitor,
@@ -107,7 +114,6 @@ async function handleScrapeRequest(data, sendResponse) {
 
     await Promise.all(tabPromises);
 
-    // Poll for completion
     const checkCompletion = setInterval(() => {
       const session = activeSessions.get(sessionId);
       if (session && session.completed >= session.total) {
@@ -118,7 +124,6 @@ async function handleScrapeRequest(data, sendResponse) {
         });
         activeSessions.delete(sessionId);
         
-        // Close all tabs
         chrome.tabs.query({}, (tabs) => {
           tabs.forEach(tab => {
             if (tab.url && competitors.some(c => 
@@ -131,7 +136,6 @@ async function handleScrapeRequest(data, sendResponse) {
       }
     }, 500);
 
-    // Timeout after 30 seconds
     setTimeout(() => {
       clearInterval(checkCompletion);
       const session = activeSessions.get(sessionId);
@@ -165,7 +169,102 @@ function handleScrapedData(data, tabId) {
   }
 }
 
-// Helper function to parse prices
+async function handleNosposRequest(data, sendResponse) {
+  const { barcodes } = data;
+  const sessionId = Date.now().toString();
+  
+  console.log(`[NOSPOS] Starting scrape for ${barcodes.length} barcodes`);
+  
+  activeSessions.set(sessionId, {
+    type: 'nospos',
+    barcodes,
+    results: [],
+    currentIndex: 0,
+    total: barcodes.length,
+    tabId: null
+  });
+
+  try {
+    const tabs = await chrome.tabs.query({ url: "https://nospos.com/*" });
+    let nosposTab;
+
+    if (tabs.length > 0) {
+      nosposTab = tabs[0];
+      await chrome.tabs.update(nosposTab.id, { active: true, url: "https://nospos.com/stock/search" });
+    } else {
+      nosposTab = await chrome.tabs.create({ 
+        url: "https://nospos.com/stock/search",
+        active: true 
+      });
+    }
+
+    const session = activeSessions.get(sessionId);
+    session.tabId = nosposTab.id;
+
+    // Wait for tab to load and content script to be ready
+    chrome.tabs.onUpdated.addListener(function listener(tabId, changeInfo) {
+      if (tabId === nosposTab.id && changeInfo.status === 'complete') {
+        chrome.tabs.onUpdated.removeListener(listener);
+        setTimeout(() => {
+          chrome.tabs.sendMessage(nosposTab.id, {
+            action: "initScraping",
+            barcodes,
+            sessionId
+          });
+        }, 1000);
+      }
+    });
+
+    // Check for completion
+    const checkCompletion = setInterval(() => {
+      const session = activeSessions.get(sessionId);
+      if (session && session.results.length >= barcodes.length) {
+        clearInterval(checkCompletion);
+        sendResponse({
+          success: true,
+          results: session.results
+        });
+        activeSessions.delete(sessionId);
+      }
+    }, 500);
+
+    setTimeout(() => {
+      clearInterval(checkCompletion);
+      const session = activeSessions.get(sessionId);
+      if (session) {
+        sendResponse({
+          success: true,
+          results: session.results,
+          partial: true
+        });
+        activeSessions.delete(sessionId);
+      }
+    }, 300000);
+
+  } catch (error) {
+    console.error("[NOSPOS] Error:", error);
+    sendResponse({
+      success: false,
+      error: error.message
+    });
+  }
+}
+
+function handleNosposData(data) {
+  const { sessionId, result } = data;
+  const session = activeSessions.get(sessionId);
+  
+  if (session) {
+    session.results.push(result);
+    console.log(`[NOSPOS] Got data for barcode. Total: ${session.results.length}/${session.total}`);
+  }
+}
+
+function handleNosposReady(data, tabId) {
+  const { sessionId } = data;
+  console.log(`[NOSPOS] Content script ready in tab ${tabId}`);
+}
+
 function parsePrice(text) {
   try {
     if (text.includes(' to ')) {
@@ -177,4 +276,8 @@ function parsePrice(text) {
   } catch {
     return null;
   }
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }

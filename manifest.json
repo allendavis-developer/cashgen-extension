@@ -13,6 +13,7 @@
     "https://cashgenerator.co.uk/*",
     "https://uk.webuy.com/*",
     "https://www.ebay.co.uk/*",
+    "https://nospos.com/*",
     "http://localhost:*/*",
     "http://127.0.0.1:*/*",
     "<all_urls>"
@@ -23,6 +24,7 @@
   "content_scripts": [
     {
       "matches": [
+        "http://localhost:*/*",
         "http://127.0.0.1:*/*"
       ],
       "js": ["webpage-bridge.js"],
@@ -36,6 +38,13 @@
         "https://www.ebay.co.uk/*"
       ],
       "js": ["content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://nospos.com/*"
+      ],
+      "js": ["nospos-scraper.js"],
       "run_at": "document_idle"
     }
   ],
