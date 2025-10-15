@@ -24,7 +24,7 @@ const SCRAPER_CONFIGS = {
   },
   CEX: {
     baseUrl: "https://uk.webuy.com",
-    searchUrl: "https://uk.webuy.com/search?stext={query}&Grade=B",
+    searchUrl: "https://uk.webuy.com/search?stext={query}",
     selectors: {
       price: ".product-main-price",
       title: ".card-title",
@@ -87,7 +87,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     console.log("[Background] WebEpos listing completed:", message.data);
   }
 
+  if (message.action === "webEposSaveCompleted") {
+    // Send to all tabs
+    chrome.tabs.query({}, (tabs) => {
+        tabs.forEach(tab => {
+            chrome.tabs.sendMessage(tab.id, {
+                action: "webEposSaveCompleted",
+                data: message.data
+            }, (response) => {
+                if (chrome.runtime.lastError) {
+                    // Ignore tabs without listener
+                    return;
+                }
+            });
+        });
+    });
+  }
 });
+
 
 async function handleWebEposListing(data, sendResponse) {
   const { item_name, description, price, serial_number, branch } = data;

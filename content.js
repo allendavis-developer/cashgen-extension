@@ -137,8 +137,7 @@ function scrapeCEX(competitor, selectors) {
     try {
       const gradeEl = card.querySelector('.grade-letter');
       const grade = gradeEl ? gradeEl.textContent.trim() : null;
-      if (grade !== 'B') return; // skip non-B items
-      console.log("found Bs!");
+
       const titleEl = card.querySelector(selectors.title);
       const priceEl = card.querySelector(selectors.price);
       const urlEl = card.querySelector(selectors.url || 'a');
@@ -155,21 +154,25 @@ function scrapeCEX(competitor, selectors) {
         url = baseUrl + url;
       }
 
-      if (title && price) {
+      // Include item if grade is 'B' OR title contains '(B)'
+      if (grade === 'B' || /\bB\b/.test(title)) {
         results.push({
           competitor,
           title,
           price,
-          store: null, // no store info needed here
+          store: null,
           url
         });
       }
+
     } catch (e) {
       console.error("Error parsing CEX card:", e);
     }
   });
+
   return results;
 }
+
 
 function scrapeCashGenerator(selectors) {
   const results = [];

@@ -30,5 +30,18 @@ window.addEventListener('message', async (event) => {
     }
 });
 
+// Listen for messages from the extension (background)
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.action === "webEposSaveCompleted") {
+        // Forward to page scripts
+        window.postMessage({
+            type: 'EXTENSION_EVENT',
+            action: message.action,
+            data: message.data
+        }, '*');
+    }
+});
+
+
 // Signal that extension is ready
 window.postMessage({ type: 'EXTENSION_READY' }, '*');

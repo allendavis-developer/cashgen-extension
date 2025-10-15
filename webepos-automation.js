@@ -213,6 +213,14 @@ async function waitForSaveCompletion() {
         clearInterval(checkSaving);
         clearInterval(checkNavigation);
         console.log("[WebEpos] Save completed!");
+        
+        // Send signal to background script
+        chrome.runtime.sendMessage({
+          action: "webEposSaveCompleted",
+          data: { timestamp: new Date().toISOString() }
+        });
+
+
         resolve({ success: true, navigated: false });
       }
     }, 200);
