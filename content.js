@@ -29,7 +29,7 @@ async function scrapePage(competitor, selectors, sessionId) {
     } else if (competitor === "CashGenerator") {
       results.push(...scrapeCashGenerator(selectors));
     } else {
-      results.push(...scrapeGeneric(competitor, selectors));
+      results.push(...scrapeCEX(competitor, selectors));
     }
   } catch (error) {
     console.error(`Scraping error for ${competitor}:`, error);
@@ -129,66 +129,45 @@ function scrapeEbay(selectors) {
   return results;
 }
 
-function scrapeGeneric(competitor, selectors) {
+function scrapeCEX(competitor, selectors) {
   const results = [];
-  
-  // Get all titles first to iterate
-  const titleElements = document.querySelectorAll(selectors.title);
-  const priceElements = document.querySelectorAll(selectors.price);
-  
-  const titles = Array.from(titleElements).map(el => el.textContent.trim());
-  const prices = Array.from(priceElements).map(el => {
-    const text = el.textContent.trim();
-    return parsePrice(text);
-  }).filter(p => p !== null);
+  const cards = document.querySelectorAll('.wrapper-box'); // each card wrapper
 
-  // Get stores if available
-  let stores = [];
-  if (selectors.shop) {
-    stores = Array.from(titleElements).map(titleEl => {
-      try {
-        const container = titleEl.closest('.snize-overhidden, .product-item-wrapper, .card, article') || 
-                         titleEl.parentElement;
-        const shopEl = container ? container.querySelector(selectors.shop) : null;
-        return shopEl ? shopEl.textContent.trim().replace(/\s+/g, ' ') : null;
-      } catch {
-        return null;
-      }
-    });
-  } else {
-    stores = new Array(titles.length).fill(null);
-  }
+  cards.forEach(card => {
+    try {
+      const gradeEl = card.querySelector('.grade-letter');
+      const grade = gradeEl ? gradeEl.textContent.trim() : null;
+      if (grade !== 'B') return; // skip non-B items
+      console.log("found Bs!");
+      const titleEl = card.querySelector(selectors.title);
+      const priceEl = card.querySelector(selectors.price);
+      const urlEl = card.querySelector(selectors.url || 'a');
 
-  // Get URLs
-  let urls = [];
-  if (selectors.url) {
-    const urlElements = document.querySelectorAll(selectors.url);
-    urls = Array.from(urlElements).map(urlEl => {
-      let href = urlEl.href || null;
-      if (href && href.startsWith('/')) {
+      if (!titleEl || !priceEl) return;
+
+      const title = titleEl.textContent.trim();
+      const priceText = priceEl.textContent.trim();
+      const price = parsePrice(priceText);
+
+      let url = urlEl ? urlEl.href || urlEl.getAttribute('href') : null;
+      if (url && url.startsWith('/')) {
         const baseUrl = SCRAPER_CONFIGS[competitor]?.baseUrl || '';
-        href = baseUrl + href;
+        url = baseUrl + url;
       }
-      return href;
-    });
-  } else {
-    urls = new Array(titles.length).fill(null);
-  }
 
-  // Combine into results
-  const minLength = Math.min(titles.length, prices.length);
-  for (let i = 0; i < minLength; i++) {
-    if (titles[i] && prices[i]) {
-      results.push({
-        competitor,
-        title: titles[i],
-        price: prices[i],
-        store: stores[i] || null,
-        url: urls[i] || null
-      });
+      if (title && price) {
+        results.push({
+          competitor,
+          title,
+          price,
+          store: null, // no store info needed here
+          url
+        });
+      }
+    } catch (e) {
+      console.error("Error parsing CEX card:", e);
     }
-  }
-
+  });
   return results;
 }
 

@@ -3,7 +3,7 @@
 const SCRAPER_CONFIGS = {
   CashConverters: {
     baseUrl: "https://www.cashconverters.co.uk",
-    searchUrl: "https://www.cashconverters.co.uk/search-results?Sort=price&page=1&f%5Bcategory%5D%5B0%5D=all&f%5Blocations%5D%5B0%5D=all&query={query}",
+    searchUrl: "https://www.cashconverters.co.uk/search-results?Sort=default&page=1&f%5Bcategory%5D%5B0%5D=all&f%5Blocations%5D%5B0%5D=all&query={query}",
     selectors: {
       price: ".product-item__price",
       title: ".product-item__title__description",

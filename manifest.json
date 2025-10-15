@@ -16,6 +16,7 @@
     "https://nospos.com/*",
     "http://localhost:*/*",
     "http://127.0.0.1:*/*",
+    "https://cashgensuite.onrender.com/*",
     "<all_urls>"
   ],
   "background": {
@@ -25,7 +26,8 @@
     {
       "matches": [
         "http://localhost:*/*",
-        "http://127.0.0.1:*/*"
+        "http://127.0.0.1:*/*",
+        "https://cashgensuite.onrender.com/*"
       ],
       "js": ["webpage-bridge.js"],
       "run_at": "document_start"
