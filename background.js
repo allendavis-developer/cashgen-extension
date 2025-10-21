@@ -2,8 +2,32 @@
 
 const SCRAPER_CONFIGS = {
   CashConverters: {
-    baseUrl: "https://www.cashconverters.co.uk",
-    searchUrl: "https://www.cashconverters.co.uk/search-results?Sort=default&page=1&f%5Bcategory%5D%5B0%5D=all&f%5Blocations%5D%5B0%5D=all&query={query}",
+      baseUrl: "https://www.cashconverters.co.uk",
+
+      // Use a function to generate the search URL
+      searchUrl: ({ query, model, category, attributes }) => {
+
+        // Map category using switch
+        let categoryId = "all"; // default
+        if (category) {
+          switch (category.toLowerCase()) {
+            case "smartphones and mobile":
+              categoryId = "1073741966";
+              break; 
+            default:
+              categoryId = "all";
+          }
+        }
+
+        let url = `https://www.cashconverters.co.uk/search-results?Sort=default&page=1&query=${encodeURIComponent(model)}&f%5Bcategory%5D%5B0%5D=${categoryId}&f%5Blocations%5D%5B0%5D=all`;
+
+        if (attributes?.storage) {
+          url += `&f[Storage%20Capacity][0]=${encodeURIComponent(attributes.storage)}`;
+        }
+
+        return url;
+    },
+    
     selectors: {
       price: ".product-item__price",
       title: ".product-item__title__description",
@@ -24,13 +48,29 @@ const SCRAPER_CONFIGS = {
   },
   CEX: {
     baseUrl: "https://uk.webuy.com",
-    searchUrl: "https://uk.webuy.com/search?stext={query}",
+    searchUrl: ({ query, model, category, attributes }) => {
+
+      // Build base URL
+      let url = `https://uk.webuy.com/search?stext=${encodeURIComponent(model)}`;
+
+      // Append storage filter if exists
+      if (attributes?.storage) {
+        url += `&Capacity=${encodeURIComponent(attributes.storage)}`;
+      }
+
+      url += `&Grade=B`;
+
+      return url;
+    },
     selectors: {
-      price: ".product-main-price",
-      title: ".card-title",
-      url: ".card-title a"
+      container: ".wrapper-box",
+      title: ".content .card-title a",
+      price: ".content .product-main-price",
+      url: ".content .card-title a",
+      grade: ".grade-letter"
     }
   },
+
   eBay: {
     baseUrl: "https://www.ebay.co.uk",
     searchUrl: "https://www.ebay.co.uk/sch/i.html?_nkw={query}&_sacat=0&_from=R40&LH_ItemCondition=3000&LH_PrefLoc=1&LH_Sold=1&LH_Complete=1",
@@ -259,7 +299,7 @@ async function handleNosposCheckboxUpdate(data, sendResponse) {
 
 
 async function handleScrapeRequest(data, sendResponse) {
-  const { query, competitors } = data;
+  const { query, competitors, category, model, attributes,  } = data;
   const sessionId = Date.now().toString();
   
   activeSessions.set(sessionId, {
@@ -277,8 +317,11 @@ async function handleScrapeRequest(data, sendResponse) {
         console.error(`No config found for ${competitor}`);
         return null;
       }
+      
+      const url = typeof config.searchUrl === 'function'
+        ? config.searchUrl({ query, model, category, attributes })
+        : config.searchUrl.replace("{query}", encodeURIComponent(query)); 
 
-      const url = config.searchUrl.replace("{query}", encodeURIComponent(query));
       const tab = await chrome.tabs.create({ url, active: false });
       
       chrome.tabs.onUpdated.addListener(function listener(tabId, changeInfo) {
@@ -288,6 +331,9 @@ async function handleScrapeRequest(data, sendResponse) {
             action: "startScraping",
             competitor,
             config: config.selectors,
+            category,
+            model,
+            attributes,
             sessionId
           });
         }

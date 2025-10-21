@@ -1,4 +1,8 @@
 // content.js - Injected into competitor pages for scraping
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 
 console.log("Price scraper content script loaded");
 
@@ -7,7 +11,6 @@ window.postMessage({ type: "EXTENSION_READY" }, "*");
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "startScraping") {
-    console.log("Starting scrape for:", message.competitor);
     scrapePage(message.competitor, message.config, message.sessionId);
     sendResponse({ received: true });
   }
@@ -19,6 +22,11 @@ async function scrapePage(competitor, selectors, sessionId) {
   await waitForSelector(selectors.price || selectors.container, 5000);
   
   const results = [];
+
+  // Extra delay to let dynamic content settle (especially CeX)
+  if (competitor === "CEX") {
+    await delay(1500); // 1.5s gives Vue time to patch the DOM
+  }
 
   try {
     // TODO: Can you just turn all of this into one function man
@@ -146,20 +154,24 @@ function scrapeCashGenerator(selectors) {
 
 function scrapeCEX(competitor, selectors) {
   const results = [];
-  const cards = document.querySelectorAll('.wrapper-box');
+  const cards = document.querySelectorAll(selectors.container);
 
   cards.forEach(card => {
     try {
-      const gradeEl = card.querySelector('.grade-letter');
+
+      const gradeEl = card.querySelector(selectors.grade);
       const grade = gradeEl ? gradeEl.textContent.trim() : null;
 
       const titleEl = card.querySelector(selectors.title);
       const priceEl = card.querySelector(selectors.price);
-      const urlEl = card.querySelector(selectors.url || 'a');
+      const urlEl = card.querySelector(selectors.url);
+
 
       if (!titleEl || !priceEl) return;
 
       const title = titleEl.textContent.trim();
+      console.log(card, title);
+
       const priceText = priceEl.textContent.trim();
       const price = parsePrice(priceText);
 
@@ -179,6 +191,13 @@ function scrapeCEX(competitor, selectors) {
       if (grade === 'B' || /\bB\b/.test(title)) {
         results.push({ competitor, id, title, price, store: null, url });
       }
+
+      console.log({
+      title: titleEl?.textContent.trim(),
+      price: priceEl?.textContent.trim(),
+      href: urlEl?.getAttribute('href'),
+      grade
+    });
 
     } catch (e) {
       console.error("Error parsing CEX card:", e);
