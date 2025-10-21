@@ -89,19 +89,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.action === "webEposSaveCompleted") {
     // Send to all tabs
-    chrome.tabs.query({}, (tabs) => {
-        tabs.forEach(tab => {
-            chrome.tabs.sendMessage(tab.id, {
-                action: "webEposSaveCompleted",
-                data: message.data
-            }, (response) => {
-                if (chrome.runtime.lastError) {
-                    // Ignore tabs without listener
-                    return;
-                }
-            });
-        });
-    });
+    // chrome.tabs.query({}, (tabs) => {
+    //     tabs.forEach(tab => {
+    //         chrome.tabs.sendMessage(tab.id, {
+    //             action: "webEposSaveCompleted",
+    //             data: message.data
+    //         }, (response) => {
+    //             if (chrome.runtime.lastError) {
+    //                 // Ignore tabs without listener
+    //                 return;
+    //             }
+    //         });
+    //     });
+    // });
   }
 });
 
@@ -308,15 +308,15 @@ async function handleScrapeRequest(data, sendResponse) {
         });
         activeSessions.delete(sessionId);
         
-        chrome.tabs.query({}, (tabs) => {
-          tabs.forEach(tab => {
-            if (tab.url && competitors.some(c => 
-              tab.url.includes(SCRAPER_CONFIGS[c]?.baseUrl)
-            )) {
-              chrome.tabs.remove(tab.id);
-            }
-          });
-        });
+        // chrome.tabs.query({}, (tabs) => {
+        //   tabs.forEach(tab => {
+        //     if (tab.url && competitors.some(c => 
+        //       tab.url.includes(SCRAPER_CONFIGS[c]?.baseUrl)
+        //     )) {
+        //       chrome.tabs.remove(tab.id);
+        //     }
+        //   });
+        // });
       }
     }, 500);
 
@@ -429,13 +429,13 @@ async function handleNosposRequest(data, sendResponse) {
           results: session.results
         });
 
-        // 🔒 Close the NOSPOS tab automatically
-        try {
-          await chrome.tabs.remove(session.tabId);
-          console.log("[NOSPOS] Tab closed after scrape ✅");
-        } catch (err) {
-          console.warn("[NOSPOS] Could not close tab:", err);
-        }
+        // // 🔒 Close the NOSPOS tab automatically
+        // try {
+        //   await chrome.tabs.remove(session.tabId);
+        //   console.log("[NOSPOS] Tab closed after scrape ✅");
+        // } catch (err) {
+        //   console.warn("[NOSPOS] Could not close tab:", err);
+        // }
 
         activeSessions.delete(sessionId);
       }

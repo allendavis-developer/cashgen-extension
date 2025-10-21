@@ -93,6 +93,15 @@ function scrapeCashGenerator(selectors) {
   const results = [];
   const cards = document.querySelectorAll('.snize-product');
 
+  // Stores to exclude (case-insensitive)
+  const excludedStores = [
+    'Cash Generator Warrington',
+    'Cash Generator Toxteth',
+    'Cash Generator Wythenshawe',
+    'Cash Generator Netherton'
+  ].map(s => s.toLowerCase());
+
+
   cards.forEach(card => {
     try {
       const urlEl = card.querySelector('.snize-view-link');
@@ -106,6 +115,13 @@ function scrapeCashGenerator(selectors) {
       const priceText = priceEl.textContent.trim();
       const price = parsePrice(priceText);
       const store = shopEl ? shopEl.textContent.trim() : null;
+
+      // Skip excluded stores
+      if (store && excludedStores.includes(store.toLowerCase())) {
+        console.log("Skipping: ", store);
+        return;
+      }
+
 
       let url = urlEl ? urlEl.getAttribute('href') : null;
       if (url && url.startsWith('/')) {

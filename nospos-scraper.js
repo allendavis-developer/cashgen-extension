@@ -197,7 +197,7 @@ async function handleExternallyListedUpdate(serial_number) {
 
     // Navigate back to search page
     await sleep(1000);
-    window.location.href = "https://nospos.com/stock/search";
+    // window.location.href = "https://nospos.com/stock/search";
 
     return { success: true };
 
