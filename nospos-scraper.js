@@ -300,6 +300,7 @@ async function processNextBarcode() {
 
     const data = await extractStockData(barcode);
     console.log("[NOSPOS] Extracted data:", data);
+    data.url = window.location.href; 
 
     chrome.runtime.sendMessage({
       action: "nosposData",
@@ -323,26 +324,31 @@ async function processNextBarcode() {
 // ----- Listen for new scraping session -----
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "initScraping") {
-    currentSessionId = message.sessionId;
-    barcodesToProcess = message.barcodes;
-    currentIndex = 0;
-    saveState();
+    //  Clear any previous session or pending flags
+    chrome.storage.local.remove(["sessionId", "barcodesToProcess", "currentIndex", "pendingExternallyListed"], () => {
+      // Then start fresh
+      currentSessionId = message.sessionId;
+      barcodesToProcess = message.barcodes;
+      currentIndex = 0;
+      saveState();
 
-    chrome.runtime.sendMessage({
-      action: "nosposReady",
-      data: { sessionId: currentSessionId }
+      chrome.runtime.sendMessage({
+        action: "nosposReady",
+        data: { sessionId: currentSessionId }
+      });
+
+      if (!window.location.href.includes("/stock/search")) {
+        window.location.href = SEARCH_PAGE;
+        return;
+      }
+
+      processNextBarcode();
+      sendResponse({ received: true });
     });
-
-    if (!window.location.href.includes("/stock/search")) {
-      window.location.href = SEARCH_PAGE;
-      return;
-    }
-
-    processNextBarcode();
-    sendResponse({ received: true });
   }
   return true;
 });
+
 
 // ----- Restore previous session on reload -----
 chrome.storage.local.get(["sessionId", "barcodesToProcess", "currentIndex"], (state) => {
@@ -356,6 +362,7 @@ chrome.storage.local.get(["sessionId", "barcodesToProcess", "currentIndex"], (st
     if (/\/stock\/\d+\/edit/.test(window.location.pathname)) {
       const barcode = barcodesToProcess[currentIndex - 1];
       extractStockData(barcode).then(data => {
+        data.url = window.location.href; // include URL here too
         console.log("[NOSPOS] Extracted after reload:", data);
         chrome.runtime.sendMessage({ action: "nosposData", data: { sessionId: currentSessionId, result: data } });
         processNextBarcode();
