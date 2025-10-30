@@ -6,7 +6,9 @@
   "permissions": [
     "tabs",
     "scripting",
-    "storage"
+    "storage",
+    "declarativeNetRequest",
+    "declarativeNetRequestWithHostAccess"
   ],
   "host_permissions": [
     "https://www.cashconverters.co.uk/*",

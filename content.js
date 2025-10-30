@@ -188,7 +188,7 @@ function scrapeCEX(competitor, selectors) {
         if (match) id = decodeURIComponent(match[1]);
       }
 
-      if (grade === 'B' || /\bB\b/.test(title)) {
+      if (!grade || grade === 'B' || /\bB\b/.test(title)) {
         results.push({ competitor, id, title, price, store: null, url });
       }
 
@@ -203,6 +203,8 @@ function scrapeCEX(competitor, selectors) {
       console.error("Error parsing CEX card:", e);
     }
   });
+
+  console.log(results);
 
   return results;
 }

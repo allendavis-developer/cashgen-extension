@@ -5,15 +5,18 @@ const SCRAPER_CONFIGS = {
       baseUrl: "https://www.cashconverters.co.uk",
 
       // Use a function to generate the search URL
-      searchUrl: ({ query, model, category, attributes }) => {
+      searchUrl: ({ query, model, subcategory, category, attributes }) => {
 
-        // Map category using switch
+        // Map category using   
         let categoryId = "all"; // default
         if (category) {
           switch (category.toLowerCase()) {
             case "smartphones and mobile":
               categoryId = "1073741966";
-              break; 
+              break;
+            case "games (discs & cartridges)":
+              categoryId = "1073741887";
+              break;  
             default:
               categoryId = "all";
           }
@@ -24,6 +27,14 @@ const SCRAPER_CONFIGS = {
         if (attributes?.storage) {
           url += `&f[Storage%20Capacity][0]=${encodeURIComponent(attributes.storage)}`;
         }
+
+        console.log(subcategory);
+
+        // Add brand filter for Xbox subcategory
+        if (subcategory && subcategory.toLowerCase() === "xbox") {
+          url += `&f[Brand][0]=Xbox`;
+        }
+
 
         return url;
     },
@@ -57,8 +68,20 @@ const SCRAPER_CONFIGS = {
       if (attributes?.storage) {
         url += `&Capacity=${encodeURIComponent(attributes.storage)}`;
       }
-
-      url += `&Grade=B`;
+      
+      // Map category using switch
+      if (category) {
+        switch (category.toLowerCase()) {
+          case "smartphones and mobile":
+            url += '&superCatName=Phones';
+            url += `&Grade=B`;
+            break; 
+          case "games (discs & cartridges)":
+            url += "&superCatName=Gaming";
+            break;
+          default:
+        }
+      }
 
       return url;
     },
@@ -144,6 +167,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // });
   }
 });
+
+async function blockResourcesForTab(tabId) {
+  const ruleId = tabId;
+  
+  const rules = [
+    {
+      id: ruleId,
+      priority: 1,
+      action: { type: "block" },
+      condition: {
+        resourceTypes: ["image", "stylesheet", "font"],
+        tabIds: [tabId]
+      }
+    }
+  ];
+
+  await chrome.declarativeNetRequest.updateSessionRules({
+    addRules: rules,
+    removeRuleIds: [ruleId] // Remove existing rule for this tab first
+  });
+}
 
 
 async function handleWebEposListing(data, sendResponse) {
@@ -299,7 +343,7 @@ async function handleNosposCheckboxUpdate(data, sendResponse) {
 
 
 async function handleScrapeRequest(data, sendResponse) {
-  const { query, competitors, category, model, attributes,  } = data;
+  const { query, competitors, subcategory, category, model, attributes,  } = data;
   const sessionId = Date.now().toString();
   
   activeSessions.set(sessionId, {
@@ -319,11 +363,17 @@ async function handleScrapeRequest(data, sendResponse) {
       }
       
       const url = typeof config.searchUrl === 'function'
-        ? config.searchUrl({ query, model, category, attributes })
+        ? config.searchUrl({ query, model, subcategory, category, attributes })
         : config.searchUrl.replace("{query}", encodeURIComponent(query)); 
 
-      const tab = await chrome.tabs.create({ url, active: false });
-      
+      const tab = await chrome.tabs.create({ url: "about:blank", active: false });
+
+      // Block resources BEFORE navigating to the actual URL
+      await blockResourcesForTab(tab.id);
+
+      // Now navigate to the actual URL
+      await chrome.tabs.update(tab.id, { url });
+
       chrome.tabs.onUpdated.addListener(function listener(tabId, changeInfo) {
         if (tabId === tab.id && changeInfo.status === 'complete') {
           chrome.tabs.onUpdated.removeListener(listener);
