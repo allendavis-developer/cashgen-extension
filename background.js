@@ -369,9 +369,9 @@ async function handleScrapeRequest(data, sendResponse) {
       const tab = await chrome.tabs.create({ url: "about:blank", active: false });
 
       // Block resources BEFORE navigating to the actual URL
-      await blockResourcesForTab(tab.id);
+      // await blockResourcesForTab(tab.id);
 
-      // Now navigate to the actual URL
+      // Now navigate to the actual URL 
       await chrome.tabs.update(tab.id, { url });
 
       chrome.tabs.onUpdated.addListener(function listener(tabId, changeInfo) {
