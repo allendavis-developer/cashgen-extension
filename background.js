@@ -17,6 +17,12 @@ const SCRAPER_CONFIGS = {
             case "games (discs & cartridges)":
               categoryId = "1073741887";
               break;  
+            case "tablets":
+              categoryId = "1073741998";
+              break;
+            case "laptops":
+              categoryId = "1073742012";
+              break;
             default:
               categoryId = "all";
           }
@@ -34,7 +40,6 @@ const SCRAPER_CONFIGS = {
         if (subcategory && subcategory.toLowerCase() === "xbox") {
           url += `&f[Brand][0]=Xbox`;
         }
-
 
         return url;
     },
@@ -59,13 +64,13 @@ const SCRAPER_CONFIGS = {
   },
   CEX: {
     baseUrl: "https://uk.webuy.com",
-    searchUrl: ({ query, model, category, attributes }) => {
+    searchUrl: ({ query, model,subcategory, category, attributes }) => {
 
       // Build base URL
       let url = `https://uk.webuy.com/search?stext=${encodeURIComponent(model)}`;
 
       // Append storage filter if exists
-      if (attributes?.storage) {
+      if (attributes?.storage && category == "smartphones and mobile") {
         url += `&Capacity=${encodeURIComponent(attributes.storage)}`;
       }
       
@@ -82,6 +87,11 @@ const SCRAPER_CONFIGS = {
           default:
         }
       }
+
+      // Add brand filter for ipads subcategory
+        if (subcategory && subcategory.toLowerCase() === "ipads") {
+          url += `&categoryFriendlyName=Apple+iPad`;
+        }
 
       return url;
     },
