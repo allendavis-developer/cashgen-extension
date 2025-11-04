@@ -83,15 +83,23 @@ const SCRAPER_CONFIGS = {
             break; 
           case "games (discs & cartridges)":
             url += "&superCatName=Gaming";
+            if (subcategory.toLowerCase() === "switch games") {
+              url += `&categoryFriendlyName=Switch+Games`;
+            } 
+
+            console.log(subcategory);
             break;
           default:
         }
       }
 
       // Add brand filter for ipads subcategory
-        if (subcategory && subcategory.toLowerCase() === "ipads") {
-          url += `&categoryFriendlyName=Apple+iPad`;
-        }
+      if (subcategory && subcategory.toLowerCase() === "ipads") {
+        if (subcategory.toLowerCase() === "ipads") {
+            url += `&categoryFriendlyName=Apple+iPad`;
+        } 
+      }
+
 
       return url;
     },
