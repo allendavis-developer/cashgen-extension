@@ -28,18 +28,9 @@ const SCRAPER_CONFIGS = {
           }
         }
 
-        let url = `https://www.cashconverters.co.uk/search-results?Sort=default&page=1&query=${encodeURIComponent(model)}&f%5Bcategory%5D%5B0%5D=${categoryId}&f%5Blocations%5D%5B0%5D=all`;
-
-        if (attributes?.storage) {
-          url += `&f[Storage%20Capacity][0]=${encodeURIComponent(attributes.storage)}`;
-        }
+        let url = `https://www.cashconverters.co.uk/search-results?Sort=default&page=1&query=${encodeURIComponent(query)}&f%5Bcategory%5D%5B0%5D=${categoryId}&f%5Blocations%5D%5B0%5D=all`;
 
         console.log(subcategory);
-
-        // Add brand filter for Xbox subcategory
-        if (subcategory && subcategory.toLowerCase() === "xbox") {
-          url += `&f[Brand][0]=Xbox`;
-        }
 
         return url;
     },
@@ -67,7 +58,7 @@ const SCRAPER_CONFIGS = {
     searchUrl: ({ query, model,subcategory, category, attributes }) => {
 
       // Build base URL
-      let url = `https://uk.webuy.com/search?stext=${encodeURIComponent(model)}`;
+      let url = `https://uk.webuy.com/search?stext=${encodeURIComponent(query)}`;
 
       // Append storage filter if exists
       if (attributes?.storage && category == "smartphones and mobile") {

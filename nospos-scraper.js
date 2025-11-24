@@ -61,7 +61,7 @@ async function waitForEditPage(previousUrl = null, timeout = 20000) {
           if (nameInput && nameInput.value.trim().length > 0) {
             return resolve();
           }
-        } catch {}
+        } catch { console.log("couldn't get to edit page!")}
       }
 
       if (Date.now() - start > timeout) {
@@ -295,8 +295,39 @@ async function processNextBarcode() {
     
     const previousUrl = window.location.href;
 
-    // Wait until edit page loads
-    await waitForEditPage(previousUrl);
+    // Wait for navigation to begin (optional small delay)
+    await sleep(10000);
+
+    // If not on an edit page after navigation → product not found
+    if (!/\/stock\/\d+\/edit/.test(window.location.pathname)) {
+
+      console.warn(`[NOSPOS] No edit page for ${barcode} — product not found`);
+
+      const data = {
+        barcode,
+        barserial: "",
+        name: "",
+        description: "couldn't find on nospos -- please double-check barcode",
+        cost_price: "",
+        retail_price: "",
+        created_at: "",
+        bought_by: "",
+        quantity: "",
+        type: "",
+        specifications: {},
+        branch: "",
+        url: "",
+        not_found: true
+      };
+
+      chrome.runtime.sendMessage({
+        action: "nosposData",
+        data: { sessionId: currentSessionId, result: data }
+      });
+
+      await sleep(500);
+      return processNextBarcode();
+    }
 
     const data = await extractStockData(barcode);
     console.log("[NOSPOS] Extracted data:", data);
