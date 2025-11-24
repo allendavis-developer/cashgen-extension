@@ -5,7 +5,8 @@ const BRANCH_TO_STORE = {
   "Warrington": "4157a468-0220-45a4-bd51-e3dffe2ce7f0",
   "Netherton": "604d760c-7742-4861-ae64-344c3a343b07",
   "Wythenshawe": "2124b7c4-5013-424f-ad03-f49b0d2f4efa",
-  "Toxteth": "289123c4-d483-4fc1-b36f-8c6534121f0d"
+  "Toxteth": "289123c4-d483-4fc1-b36f-8c6534121f0d",
+  "St. Helens": "015e256e-626a-4c1b-4fd6-08dd08b5cee5"
 };
 
 function sleep(ms) {
