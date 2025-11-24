@@ -23,6 +23,9 @@ const SCRAPER_CONFIGS = {
             case "laptops":
               categoryId = "1073742012";
               break;
+            case "gaming consoles":
+              categoryId = "1073741901";
+              break;
             default:
               categoryId = "all";
           }
