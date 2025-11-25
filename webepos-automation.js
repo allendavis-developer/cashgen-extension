@@ -152,10 +152,12 @@ async function fillProductForm(data) {
   if (serial_number) {
     try {
       const barcodeInput = await waitForSelector("#barcode", 5000);
-      barcodeInput.value = serial_number;
+      const stamped = buildTimestampedSerial(serial_number);
+      barcodeInput.value = stamped;
       barcodeInput.dispatchEvent(new Event('input', { bubbles: true }));
       barcodeInput.dispatchEvent(new Event('change', { bubbles: true }));
-      console.log("[WebEpos] Barcode filled");
+      console.log("[WebEpos] Barcode filled:", stamped);
+
     } catch (error) {
       console.warn("[WebEpos] Could not fill barcode:", error);
     }
@@ -194,6 +196,19 @@ async function fillProductForm(data) {
 
   console.log("[WebEpos] Form filled successfully. Waiting for user to save...");
 }
+
+function buildTimestampedSerial(raw) {
+  const now = new Date();
+
+  const mm   = String(now.getMonth() + 1).padStart(2, "0");
+  const dd   = String(now.getDate()).padStart(2, "0");
+  const yyyy = now.getFullYear();
+  const hh   = String(now.getHours()).padStart(2, "0");
+  const min  = String(now.getMinutes()).padStart(2, "0");
+
+  return `${raw}-${dd}${mm}${yyyy}${hh}${min}`;
+}
+
 
 async function waitForSaveCompletion() {
   console.log("[WebEpos] Monitoring for save completion...");

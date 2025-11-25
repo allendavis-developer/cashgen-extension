@@ -416,15 +416,15 @@ async function handleScrapeRequest(data, sendResponse) {
         });
         activeSessions.delete(sessionId);
         
-        // chrome.tabs.query({}, (tabs) => {
-        //   tabs.forEach(tab => {
-        //     if (tab.url && competitors.some(c => 
-        //       tab.url.includes(SCRAPER_CONFIGS[c]?.baseUrl)
-        //     )) {
-        //       chrome.tabs.remove(tab.id);
-        //     }
-        //   });
-        // });
+        chrome.tabs.query({}, (tabs) => {
+          tabs.forEach(tab => {
+            if (tab.url && competitors.some(c => 
+              tab.url.includes(SCRAPER_CONFIGS[c]?.baseUrl)
+            )) {
+              chrome.tabs.remove(tab.id);
+            }
+          });
+        });
       }
     }, 500);
 
