@@ -115,16 +115,61 @@ const SCRAPER_CONFIGS = {
     }
   },
 
-  eBay: {
-    baseUrl: "https://www.ebay.co.uk",
-    searchUrl: "https://www.ebay.co.uk/sch/i.html?_nkw={query}&_sacat=0&_from=R40&LH_ItemCondition=3000&LH_PrefLoc=1&LH_Sold=1&LH_Complete=1",
-    selectors: {
-      price: ".s-card__price, .su-styled-text.primary.bold.large-1.s-card__price",
-      title: ".s-card__title",
-      url: ".su-card-container__content > a",
-      container: "#srp-river-results > ul > li"
+eBay: {
+  baseUrl: "https://www.ebay.co.uk",
+
+  searchUrl: ({ query, category }) => {
+    // Map your internal categories to eBay categories
+    let categoryId = null;
+
+    switch ((category || "").toLowerCase()) {
+      case "smartphones and mobile":
+        categoryId = "9355";
+        break;
+      case "games (discs & cartridges)":
+        categoryId = "139973";
+        break;  
+      case "tablets":
+        categoryId = "58058";
+        break;
+      case "laptops":
+        categoryId = "175672";
+        break;
+      case "gaming consoles":
+        categoryId = "139971";
+        break;
+      case "cameras":
+        categoryId = "31388";
+        break;
+      case "headphones":
+        categoryId = "15052";
+        break;
+      case "smartwatches":
+        categoryId = "178893";
+        break;
+      default:
+        categoryId = null;      // This forces the “no category” URL shape
     }
+
+    const encoded = encodeURIComponent(query);
+
+    // No category? Use the generic eBay search
+    if (!categoryId) {
+      return `https://www.ebay.co.uk/sch/i.html?_nkw=${encoded}&_sacat=0&_sop=12&_oac=1`;
+    }
+
+    // Category present? Use category-specific URL shape
+    return `https://www.ebay.co.uk/sch/${categoryId}/i.html?_nkw=${encoded}&_sop=12&_oac=1`;
+  },
+
+  selectors: {
+    price: ".s-card__price, .su-styled-text.primary.bold.large-1.s-card__price",
+    title: ".s-card__title",
+    url: ".su-card-container__content > a",
+    container: "#srp-river-results > ul > li"
   }
+}
+
 };
 
 const activeSessions = new Map();
