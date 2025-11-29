@@ -26,6 +26,15 @@ const SCRAPER_CONFIGS = {
             case "gaming consoles":
               categoryId = "1073741901";
               break;
+            case "cameras":
+              categoryId = "1073742069";
+              break;
+            case "headphones":
+              categoryId = "1073742111";
+              break;
+            case "smartwatches":
+              categoryId = "1073742105";
+              break;
             default:
               categoryId = "all";
           }
