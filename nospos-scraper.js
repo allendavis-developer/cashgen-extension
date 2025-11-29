@@ -17,6 +17,13 @@ function saveState() {
   });
 }
 
+function clearState() {
+  chrome.storage.local.remove(["sessionId", "barcodesToProcess", "currentIndex"]);
+  currentSessionId = null;
+  barcodesToProcess = [];
+  currentIndex = 0;
+}
+
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -54,14 +61,16 @@ async function waitForEditPage(previousUrl = null, timeout = 20000) {
       const urlChanged = previousUrl ? currentUrl !== previousUrl : /\/stock\/\d+\/edit/.test(window.location.pathname);
 
       if (urlChanged && /\/stock\/\d+\/edit/.test(window.location.pathname)) {
-        // Optionally wait until #stock-name or .detail-view has new content
+        // Optionally wait until #stock-name has content
         try {
           await waitForSelector("#stock-name", 10000);
           const nameInput = document.querySelector("#stock-name");
           if (nameInput && nameInput.value.trim().length > 0) {
             return resolve();
           }
-        } catch { console.log("couldn't get to edit page!")}
+        } catch {
+          console.log("couldn't get to edit page!");
+        }
       }
 
       if (Date.now() - start > timeout) {
@@ -73,7 +82,6 @@ async function waitForEditPage(previousUrl = null, timeout = 20000) {
     check();
   });
 }
-
 
 async function getInputValue(selector) {
   try {
@@ -98,112 +106,6 @@ async function getSummaryDetail(label) {
     return "N/A";
   } catch {
     return "N/A";
-  }
-}
-
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-
-  if (message.action === "updateExternallyListed") {
-    handleExternallyListedUpdate(message.data.serial_number, sendResponse);
-    return true;
-  }
-});
-
-async function handleExternallyListedUpdate(serial_number) {
-  console.log(`[NOSPOS] Updating externally listed for ${serial_number}`);
-
-  // Save pending update so it survives reload
-  chrome.storage.local.set({ pendingExternallyListed: serial_number });
-
-  try {
-    // Wait for page load
-    await waitForLoad();
-    await sleep(500);
-
-      // Only search if NOT already on edit page
-    if (!/\/stock\/\d+\/edit/.test(window.location.pathname)) {
-      const searchInput = document.querySelector("#stocksearchandfilter-query");
-      if (!searchInput) throw new Error("Search input not found");
-
-      searchInput.value = serial_number;
-      searchInput.dispatchEvent(new Event("input", { bubbles: true }));
-
-      const form = searchInput.closest("form");
-      if (form) form.submit();
-      else searchInput.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', keyCode: 13, bubbles: true }));
-
-      var previousUrl = window.location.href;
-      await waitForEditPage(previousUrl);
-      console.log("[NOSPOS] Edit page loaded after search");
-    } else {
-      console.log("[NOSPOS] Already on edit page, skipping search");
-      await waitForEditPage(); // just ensure fully loaded
-    }
-
-    // Wait for edit page to load
-    console.log("[NOSPOS] Edit page loaded");
-
-    // Wait for checkbox to be available and enabled
-    await waitForSelector("#stock-externally_listed_at", 5000);
-    const checkbox = document.querySelector("#stock-externally_listed_at");
-    const checkboxLabel = document.querySelector("label[for='stock-externally_listed_at']");
-    if (!checkbox || !checkboxLabel) throw new Error("Externally Listed checkbox not found");
-
-    await new Promise(resolve => {
-      const interval = setInterval(() => {
-        if (!checkbox.disabled) {
-          clearInterval(interval);
-          resolve();
-        }
-      }, 100);
-    });
-
-    // Click checkbox if not already checked
-    let changed = false;
-    if (!checkbox.checked) {
-      checkboxLabel.click();
-      console.log("[NOSPOS] Externally Listed checkbox clicked");
-      changed = true;
-      await sleep(300);
-    } else {
-      console.log("[NOSPOS] Already marked as externally listed");
-    }
-
-    if (changed) {
-      const saveButton = document.querySelector("button.btn.btn-blue[type='submit']");
-      if (!saveButton) throw new Error("Save button not found");
-      saveButton.click();
-      console.log("[NOSPOS] Save button clicked");
-      
-      // wait for confirmation
-      await new Promise(resolve => {
-        const checkInterval = setInterval(() => {
-          if (document.querySelector(".alert-success") || !window.location.href.includes("/edit")) {
-            clearInterval(checkInterval);
-            resolve();
-          }
-        }, 500);
-
-        setTimeout(() => clearInterval(checkInterval) || resolve(), 5000);
-      });
-    } else {
-      console.log("[NOSPOS] No change needed, skipping save");
-    }
-
-    console.log("[NOSPOS] Successfully updated externally listed status");
-
-    // Remove pending update from storage
-    chrome.storage.local.remove("pendingExternallyListed");
-
-    // Navigate back to search page
-    await sleep(1000);
-    // window.location.href = "https://nospos.com/stock/search";
-
-    return { success: true };
-
-  } catch (error) {
-    console.error("[NOSPOS] Error updating externally listed:", error);
-    return { success: false, error: error.message };
   }
 }
 
@@ -256,55 +158,207 @@ async function extractStockData(barcode) {
   };
 }
 
-// ----- Process barcodes -----
-async function processNextBarcode() {
-  if (currentIndex >= barcodesToProcess.length) {
-    console.log("[NOSPOS] All barcodes processed");
-    chrome.storage.local.remove(["sessionId", "barcodesToProcess", "currentIndex"]);
-    return;
+// ---------- Promise wrappers for chrome.storage ----------
+function storageGet(keys) {
+  return new Promise(resolve => chrome.storage.local.get(keys, resolve));
+}
+function storageSet(obj) {
+  return new Promise(resolve => chrome.storage.local.set(obj, resolve));
+}
+function storageRemove(keys) {
+  return new Promise(resolve => chrome.storage.local.remove(keys, resolve));
+}
+
+// ----- Message handlers (keep as you had them) -----
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+
+
+  // NEW: Handle abort from background
+  if (message.action === "abortScraping") {
+    console.log("[NOSPOS] Received abort signal - clearing state");
+    clearState(); // This clears chrome.storage.local
+    currentSessionId = null;
+    barcodesToProcess = [];
+    currentIndex = 0;
+    sendResponse({ aborted: true });
+    return true;
   }
 
-  const barcode = barcodesToProcess[currentIndex];
-  console.log(`[NOSPOS] [${currentIndex + 1}/${barcodesToProcess.length}] Processing: ${barcode}`);
+  if (message.action === "updateExternallyListed") {
+    handleExternallyListedUpdate(message.data.serial_number, sendResponse);
+    return true;
+  }
+
+  // The initScraping message is handled in background -> sends initScraping to content script
+  if (message.action === "initScraping") {
+    // Defensive: ensure we don't stomp an already-running session
+    if (message.sessionId && message.barcodes) {
+      currentSessionId = message.sessionId;
+      barcodesToProcess = message.barcodes.slice(); // clone
+      currentIndex = 0;
+      saveState();
+      chrome.runtime.sendMessage({ action: "nosposReady", data: { sessionId: currentSessionId } });
+      // If not on search page, navigate there; resumeAfterNavigation will pick it up.
+      if (!window.location.href.includes("/stock/search")) {
+        window.location.href = SEARCH_PAGE;
+      } else {
+        // Start first search
+        processNextBarcode();
+      }
+      sendResponse({ received: true });
+      return true;
+    }
+  }
+
+  return false;
+});
+
+// ----- Externally listed update flow (unchanged) -----
+async function handleExternallyListedUpdate(serial_number) {
+  console.log(`[NOSPOS] Updating externally listed for ${serial_number}`);
+  await storageSet({ pendingExternallyListed: serial_number });
 
   try {
     await waitForLoad();
     await sleep(500);
 
-    // Decide which input to use based on page type 
-    let searchInput = null; 
-    if (/\/stock\/\d+\/edit/.test(window.location.pathname)) { 
-        // Edit page search input 
-        searchInput = document.querySelector("#searchform-query"); 
-    } else if (window.location.href.includes("/stock/search")) { 
-        // Main search page 
-        searchInput = document.querySelector("#stocksearchandfilter-query"); }
-
-    searchInput.value = barcode;
-    searchInput.dispatchEvent(new Event("input", { bubbles: true }));
-
-    currentIndex++;
-    saveState();
-
-    const form = searchInput.closest("form");
-    if (form) form.submit();
-    else {
-      const searchBtn = document.querySelector('button[type="submit"], .btn-search');
-      if (searchBtn) searchBtn.click();
-    }
-    
-    const previousUrl = window.location.href;
-
-    // Wait for navigation to begin (optional small delay)
-    await sleep(10000);
-
-    // If not on an edit page after navigation → product not found
     if (!/\/stock\/\d+\/edit/.test(window.location.pathname)) {
+      const searchInput = document.querySelector("#stocksearchandfilter-query");
+      if (!searchInput) throw new Error("Search input not found");
 
-      console.warn(`[NOSPOS] No edit page for ${barcode} — product not found`);
+      searchInput.value = serial_number;
+      searchInput.dispatchEvent(new Event("input", { bubbles: true }));
 
-      const data = {
-        barcode,
+      const form = searchInput.closest("form");
+      if (form) form.submit();
+      else searchInput.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', keyCode: 13, bubbles: true }));
+
+      const previousUrl = window.location.href;
+      await waitForEditPage(previousUrl);
+      console.log("[NOSPOS] Edit page loaded after search");
+    } else {
+      console.log("[NOSPOS] Already on edit page, skipping search");
+      await waitForEditPage();
+    }
+
+    // Wait for checkbox to be available and enabled
+    await waitForSelector("#stock-externally_listed_at", 5000);
+    const checkbox = document.querySelector("#stock-externally_listed_at");
+    const checkboxLabel = document.querySelector("label[for='stock-externally_listed_at']");
+    if (!checkbox || !checkboxLabel) throw new Error("Externally Listed checkbox not found");
+
+    await new Promise(resolve => {
+      const interval = setInterval(() => {
+        if (!checkbox.disabled) {
+          clearInterval(interval);
+          resolve();
+        }
+      }, 100);
+    });
+
+    let changed = false;
+    if (!checkbox.checked) {
+      checkboxLabel.click();
+      console.log("[NOSPOS] Externally Listed checkbox clicked");
+      changed = true;
+      await sleep(300);
+    } else {
+      console.log("[NOSPOS] Already marked as externally listed");
+    }
+
+    if (changed) {
+      const saveButton = document.querySelector("button.btn.btn-blue[type='submit']");
+      if (!saveButton) throw new Error("Save button not found");
+      saveButton.click();
+      console.log("[NOSPOS] Save button clicked");
+
+      await new Promise(resolve => {
+        const checkInterval = setInterval(() => {
+          if (document.querySelector(".alert-success") || !window.location.href.includes("/edit")) {
+            clearInterval(checkInterval);
+            resolve();
+          }
+        }, 500);
+
+        setTimeout(() => clearInterval(checkInterval) || resolve(), 5000);
+      });
+    } else {
+      console.log("[NOSPOS] No change needed, skipping save");
+    }
+
+    console.log("[NOSPOS] Successfully updated externally listed status");
+    await storageRemove("pendingExternallyListed");
+    await sleep(1000);
+    return { success: true };
+
+  } catch (error) {
+    console.error("[NOSPOS] Error updating externally listed:", error);
+    return { success: false, error: error.message };
+  }
+}
+
+// ----- Single unified resume logic (runs on every load) -----
+(async function resumeAfterNavigation() {
+  await waitForLoad();
+  await sleep(150); // small debounce for UI work to settle
+
+  // NEW: Stop if we're on a login page
+  if (window.location.href.includes("login") || window.location.href.includes("tag-login")) {
+    console.log("[NOSPOS] On login page - clearing state and stopping");
+    await clearState();
+    return;
+  }
+
+
+  // Load storage state
+  const state = await storageGet(["sessionId", "barcodesToProcess", "currentIndex"]);
+  if (!state.sessionId || !state.barcodesToProcess || state.currentIndex == null) {
+    // No active session; but still check pendingExternallyListed
+    const pending = await storageGet("pendingExternallyListed");
+    if (pending && pending.pendingExternallyListed) {
+      const serial = pending.pendingExternallyListed;
+      if (/\/stock\/\d+\/edit/.test(window.location.pathname)) {
+        console.log(`[NOSPOS] Resuming pending externally listed update for ${serial}`);
+        handleExternallyListedUpdate(serial);
+      } else {
+        // if not on edit, let handleExternallyListedUpdate navigate/search when triggered by message
+        // or clear if it's obviously irrelevant
+      }
+    }
+    return;
+  }
+
+  // Populate memory
+  currentSessionId = state.sessionId;
+  barcodesToProcess = state.barcodesToProcess;
+  currentIndex = state.currentIndex;
+
+  // previousIndex is the barcode that triggered the navigation that produced the current page
+  const previousIndex = currentIndex - 1;
+
+  // If previousIndex is valid, interpret the current page as the result of that previous search
+  if (previousIndex >= 0 && previousIndex < barcodesToProcess.length) {
+    const prevBarcode = barcodesToProcess[previousIndex];
+
+    // If we're on an edit page -> previous barcode was found
+    if (/\/stock\/\d+\/edit/.test(window.location.pathname)) {
+      try {
+        const data = await extractStockData(prevBarcode);
+        data.url = window.location.href;
+        chrome.runtime.sendMessage({ action: "nosposData", data: { sessionId: currentSessionId, result: data } });
+      } catch (err) {
+        console.error("[NOSPOS] Error extracting after navigation:", err);
+        chrome.runtime.sendMessage({ action: "nosposData", data: { sessionId: currentSessionId, result: { barcode: prevBarcode, error: err.message } } });
+      }
+
+      // After sending success, continue to next
+      await sleep(200);
+      // don't increment here — currentIndex was already incremented by the code that initiated the search
+    }
+    // If we're on the search page -> previous barcode not found
+    else if (window.location.href.includes("/search")) {
+      const notFound = {
+        barcode: prevBarcode,
         barserial: "",
         name: "",
         description: "couldn't find on nospos -- please double-check barcode",
@@ -316,106 +370,107 @@ async function processNextBarcode() {
         type: "",
         specifications: {},
         branch: "",
-        url: "",
+        url: window.location.href,
         not_found: true
       };
 
-      chrome.runtime.sendMessage({
-        action: "nosposData",
-        data: { sessionId: currentSessionId, result: data }
-      });
-
-      await sleep(500);
-      return processNextBarcode();
+      chrome.runtime.sendMessage({ action: "nosposData", data: { sessionId: currentSessionId, result: notFound } });
+      await sleep(200);
+      // don't increment here either — previous run already advanced currentIndex
     }
+    // else: we're on some other page (login/home); let background handle login flows or navigate to search
+  }
 
-    const data = await extractStockData(barcode);
-    console.log("[NOSPOS] Extracted data:", data);
-    data.url = window.location.href; 
+  // Now check whether the session is done (currentIndex points to the next barcode to search)
+  if (currentIndex >= barcodesToProcess.length) {
+    console.log("[NOSPOS] All barcodes processed");
+    await storageRemove(["sessionId", "barcodesToProcess", "currentIndex"]);
+    return;
+  }
 
-    chrome.runtime.sendMessage({
-      action: "nosposData",
-      data: { sessionId: currentSessionId, result: data }
-    });
-
-    // Small delay before next barcode
-    await sleep(1000);
+  // If we are on the search page, start the next search.
+  if (window.location.href.includes("/stock/search")) {
+    // start next search
     processNextBarcode();
-  } catch (error) {
-    console.error(`[NOSPOS] Error processing ${barcode}:`, error);
-    chrome.runtime.sendMessage({
-      action: "nosposData",
-      data: { sessionId: currentSessionId, result: { barcode, error: error.message } }
-    });
-    await sleep(1000);
+    return;
+  }
+
+  // If we are on an edit page (maybe user didn't trigger next search), we can still trigger a new search from here
+  if (/\/stock\/\d+\/edit/.test(window.location.pathname)) {
+    // Start next search from edit page's search input
     processNextBarcode();
+    return;
   }
-}
 
-// ----- Listen for new scraping session -----
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.action === "initScraping") {
-    //  Clear any previous session or pending flags
-    chrome.storage.local.remove(["sessionId", "barcodesToProcess", "currentIndex", "pendingExternallyListed"], () => {
-      // Then start fresh
-      currentSessionId = message.sessionId;
-      barcodesToProcess = message.barcodes;
-      currentIndex = 0;
-      saveState();
+  // Otherwise, navigate to the search page so processNextBarcode can find the right input
+  window.location.href = SEARCH_PAGE;
+})();
 
-      chrome.runtime.sendMessage({
-        action: "nosposReady",
-        data: { sessionId: currentSessionId }
-      });
-
-      if (!window.location.href.includes("/stock/search")) {
-        window.location.href = SEARCH_PAGE;
-        return;
-      }
-
-      processNextBarcode();
-      sendResponse({ received: true });
-    });
+// ----- Initiates a search for currentIndex barcode (does NOT expect to survive navigation) -----
+async function processNextBarcode() {
+  if (!barcodesToProcess || currentIndex >= barcodesToProcess.length) {
+    console.log("[NOSPOS] Nothing to process or all barcodes processed");
+    await storageRemove(["sessionId", "barcodesToProcess", "currentIndex"]);
+    return;
   }
-  return true;
-});
 
+  const barcode = barcodesToProcess[currentIndex];
+  console.log(`[NOSPOS] [${currentIndex + 1}/${barcodesToProcess.length}] Searching: ${barcode}`);
 
-// ----- Restore previous session on reload -----
-chrome.storage.local.get(["sessionId", "barcodesToProcess", "currentIndex"], (state) => {
-  if (state.sessionId && state.barcodesToProcess?.length) {
-    currentSessionId = state.sessionId;
-    barcodesToProcess = state.barcodesToProcess;
-    currentIndex = state.currentIndex || 0;
+  await waitForLoad();
+  await sleep(300);
 
-    console.log(`[NOSPOS] Resuming session ${currentSessionId}, barcode ${currentIndex + 1}/${barcodesToProcess.length}`);
-
-    if (/\/stock\/\d+\/edit/.test(window.location.pathname)) {
-      const barcode = barcodesToProcess[currentIndex - 1];
-      extractStockData(barcode).then(data => {
-        data.url = window.location.href; // include URL here too
-        console.log("[NOSPOS] Extracted after reload:", data);
-        chrome.runtime.sendMessage({ action: "nosposData", data: { sessionId: currentSessionId, result: data } });
-        processNextBarcode();
-      });
-    } else if (window.location.href.includes("/stock/search")) {
-      processNextBarcode();
-    } else {
-      window.location.href = SEARCH_PAGE;
-    }
-  }
-});
-
-// ----- Restore pending externally listed update on content script reload -----
-chrome.storage.local.get("pendingExternallyListed", (state) => {
-  const serial_number = state.pendingExternallyListed;
-  if (!serial_number) return;
+  let searchInput = null;
 
   if (/\/stock\/\d+\/edit/.test(window.location.pathname)) {
-    console.log(`[NOSPOS] Resuming pending externally listed update for ${serial_number}`);
-    handleExternallyListedUpdate(serial_number);
-  } else {
-    // Already done or on search page — clear pending
-    chrome.storage.local.remove("pendingExternallyListed");
+    searchInput = document.querySelector("#searchform-query");
+  } else if (window.location.href.includes("/stock/search")) {
+    searchInput = document.querySelector("#stocksearchandfilter-query");
   }
-});
+
+  if (!searchInput) {
+    console.warn("[NOSPOS] No search input found; navigating to search page");
+    // try to salvage by navigating to the search page
+    if (!window.location.href.includes("/stock/search")) {
+      window.location.href = SEARCH_PAGE;
+    }
+    return;
+  }
+
+  // Fill input, trigger input event
+  searchInput.value = barcode;
+  searchInput.dispatchEvent(new Event("input", { bubbles: true }));
+
+  // Advance the logical pointer (this is important: we store the "next" index so resume interprets page as result of previousIndex)
+  currentIndex++;
+  saveState();
+
+  // Submit
+  const form = searchInput.closest("form");
+  if (form) form.submit();
+  else {
+    const searchBtn = document.querySelector('button[type="submit"], .btn-search');
+    if (searchBtn) searchBtn.click();
+    else {
+      // fallback: press Enter on input
+      searchInput.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', keyCode: 13, bubbles: true }));
+    }
+  }
+
+  // Execution ends here — navigation will reload the page and the unified resumeAfterNavigation will handle the result.
+}
+
+// ----- Restore pending externally listed update on content script reload -----
+// note: we already check pendingExternallyListed in resume flow, but keep this as an additional safety net
+(async function restorePendingExternallyListed() {
+  const pending = await storageGet("pendingExternallyListed");
+  if (pending && pending.pendingExternallyListed) {
+    const serial = pending.pendingExternallyListed;
+    if (/\/stock\/\d+\/edit/.test(window.location.pathname)) {
+      console.log(`[NOSPOS] Resuming pending externally listed update for ${serial}`);
+      handleExternallyListedUpdate(serial);
+    } else {
+      // leave it in storage for resume logic or other triggers
+    }
+  }
+})();

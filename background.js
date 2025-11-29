@@ -464,16 +464,17 @@ function handleScrapedData(data, tabId) {
 async function handleNosposRequest(data, sendResponse) {
   const { barcodes } = data;
   const sessionId = Date.now().toString();
-  
+
   console.log(`[NOSPOS] Starting scrape for ${barcodes.length} barcodes`);
-  
+
   activeSessions.set(sessionId, {
     type: 'nospos',
     barcodes,
     results: [],
     currentIndex: 0,
     total: barcodes.length,
-    tabId: null
+    tabId: null,
+    aborted: false
   });
 
   try {
@@ -482,96 +483,179 @@ async function handleNosposRequest(data, sendResponse) {
 
     if (tabs.length > 0) {
       nosposTab = tabs[0];
-      await chrome.tabs.update(nosposTab.id, { active: true, url: "https://nospos.com/stock/search" });
+      await chrome.tabs.update(nosposTab.id, {
+        active: true,
+        url: "https://nospos.com/stock/search"
+      });
     } else {
-      nosposTab = await chrome.tabs.create({ 
+      nosposTab = await chrome.tabs.create({
         url: "https://nospos.com/stock/search",
-        active: true 
+        active: true
       });
     }
 
+    // Store tab ID early (Fix #1)
     const session = activeSessions.get(sessionId);
     session.tabId = nosposTab.id;
 
-    chrome.tabs.onUpdated.addListener(function listener(tabId, changeInfo, tab) {
-      if (tabId === nosposTab.id && changeInfo.status === 'complete') {
-          const currentUrl = tab.url || "";
-          
-          // 🧠 Detect login page
-          if (currentUrl.includes("/site/standard-login") || currentUrl.includes("/login")) {
-            console.warn("[NOSPOS] User not logged in, aborting scrape.");
+    // -------------------------------
+    // 🧨 ABORT WHEN TAB IS CLOSED
+    // -------------------------------
+    const onRemoved = async (closedTabId) => {
+      const s = activeSessions.get(sessionId);
+      if (!s || s.aborted) return;
 
-            chrome.tabs.onUpdated.removeListener(listener);
-            chrome.tabs.remove(nosposTab.id);
+      if (closedTabId === s.tabId) {
+        console.warn("[NOSPOS] Tab closed by user — aborting scrape");
 
-            activeSessions.delete(sessionId);
-            sendResponse({
-              success: false,
-              error: "Please log in to NOSPOS before starting a scrape."
-            });
-            return;
-          }
+        s.aborted = true;
+        activeSessions.delete(sessionId);
 
-          // ✅ Logged in — start scraping
-          chrome.tabs.onUpdated.removeListener(listener);
-          setTimeout(() => {
-            chrome.tabs.sendMessage(nosposTab.id, {
-              action: "initScraping",
-              barcodes,
-              sessionId
-            });
-          }, 1000);
-        }
-    });
-
-
-       // ✅ Check for completion
-    const checkCompletion = setInterval(async () => {
-      const session = activeSessions.get(sessionId);
-      if (session && session.results.length >= session.total) {
-        clearInterval(checkCompletion);
-
-        console.log(`[NOSPOS] Scrape complete for all ${session.total} barcodes ✅`);
-        sendResponse({
-          success: true,
-          results: session.results
+        chrome.runtime.sendMessage({
+          action: "nosposScrape:failure",
+          reason: "tabClosed"
         });
 
-        // // 🔒 Close the NOSPOS tab automatically
-        // try {
-        //   await chrome.tabs.remove(session.tabId);
-        //   console.log("[NOSPOS] Tab closed after scrape ✅");
-        // } catch (err) {
-        //   console.warn("[NOSPOS] Could not close tab:", err);
-        // }
+        sendResponse({
+          success: false,
+          error: "The NOSPOS tab was closed."
+        });
+
+        chrome.tabs.onRemoved.removeListener(onRemoved);
+      }
+    };
+
+    chrome.tabs.onRemoved.addListener(onRemoved);
+
+    // -------------------------------
+    // 🧨 ABORT IF USER NAVIGATES AWAY
+    // -------------------------------
+    const onUpdated = async (tabId, changeInfo, tab) => {
+      const s = activeSessions.get(sessionId);
+      if (!s || s.aborted) return;
+
+      if (tabId !== s.tabId) return;
+
+      if (changeInfo.status === 'loading') {
+        const url = tab.url || "";
+
+        // Only allow NOSPOS stock pages during scraping
+        const allowed =
+          url.includes("/stock/search") ||
+          url.includes("/stock/edit") ||
+          url.includes("/nospos.com/stock/");
+
+        if (!allowed && !url.includes("nospos.com")) {
+          console.warn("[NOSPOS] User navigated off NOSPOS — aborting scrape");
+
+          s.aborted = true;
+          activeSessions.delete(sessionId);
+
+          chrome.tabs.onUpdated.removeListener(onUpdated);
+          chrome.tabs.onRemoved.removeListener(onRemoved);
+
+          sendResponse({
+            success: false,
+            error: "User navigated away from NOSPOS."
+          });
+
+          return;
+        }
+      }
+
+      // Wait for page to fully load
+      if (tabId === s.tabId && changeInfo.status === 'complete') {
+        const currentUrl = tab.url || "";
+
+        // Handle login-interruption
+        if (currentUrl.includes("/site/standard-login") || currentUrl.includes("/login")) {
+          console.warn("[NOSPOS] User not logged in, aborting scrape.");
+
+          s.aborted = true;
+          activeSessions.delete(sessionId);
+
+          chrome.tabs.onUpdated.removeListener(onUpdated);
+          chrome.tabs.onRemoved.removeListener(onRemoved);
+
+          chrome.tabs.remove(s.tabId);
+
+          sendResponse({
+            success: false,
+            error: "Please log in to NOSPOS before starting a scrape."
+          });
+          return;
+        }
+
+        // Logged in and ready → initialize scraping
+        chrome.tabs.onUpdated.removeListener(onUpdated);
+
+        setTimeout(() => {
+          chrome.tabs.sendMessage(s.tabId, {
+            action: "initScraping",
+            barcodes,
+            sessionId
+          });
+        }, 1000);
+      }
+    };
+
+    chrome.tabs.onUpdated.addListener(onUpdated);
+
+    // -------------------------------
+    // CHECK FOR COMPLETION
+    // -------------------------------
+    const checkCompletion = setInterval(async () => {
+      const s = activeSessions.get(sessionId);
+      if (!s || s.aborted) {
+        clearInterval(checkCompletion);
+        return;
+      }
+
+      if (s.results.length >= s.total) {
+        clearInterval(checkCompletion);
+
+        console.log(`[NOSPOS] Scrape complete for all ${s.total} barcodes`);
+
+        chrome.tabs.onUpdated.removeListener(onUpdated);
+        chrome.tabs.onRemoved.removeListener(onRemoved);
+
+        sendResponse({
+          success: true,
+          results: s.results
+        });
 
         activeSessions.delete(sessionId);
       }
     }, 500);
 
-    // 🕒 Timeout safeguard — 5 minutes max
+    // -------------------------------
+    // TIMEOUT SAFEGUARD — 5 MIN
+    // -------------------------------
     setTimeout(async () => {
+      const s = activeSessions.get(sessionId);
+      if (!s || s.aborted) return;
+
       clearInterval(checkCompletion);
-      const session = activeSessions.get(sessionId);
-      if (session) {
-        console.warn("[NOSPOS] Scrape timed out — partial results returned");
-        sendResponse({
-          success: true,
-          results: session.results,
-          partial: true
-        });
 
-        // Close tab even if partial
-        try {
-          await chrome.tabs.remove(session.tabId);
-          console.log("[NOSPOS] Tab closed after timeout ⏰");
-        } catch (err) {
-          console.warn("[NOSPOS] Could not close tab after timeout:", err);
-        }
+      console.warn("[NOSPOS] Scrape timed out — partial results returned");
 
-        activeSessions.delete(sessionId);
+      chrome.tabs.onUpdated.removeListener(onUpdated);
+      chrome.tabs.onRemoved.removeListener(onRemoved);
+
+      sendResponse({
+        success: true,
+        results: s.results,
+        partial: true
+      });
+
+      try {
+        await chrome.tabs.remove(s.tabId);
+      } catch (err) {
+        console.warn("[NOSPOS] Could not close tab after timeout:", err);
       }
-    }, 300000); // 5 min timeout
+
+      activeSessions.delete(sessionId);
+    }, 300000);
 
   } catch (error) {
     console.error("[NOSPOS] Error:", error);
@@ -581,6 +665,7 @@ async function handleNosposRequest(data, sendResponse) {
     });
   }
 }
+
 
 
 function handleNosposData(data) {
