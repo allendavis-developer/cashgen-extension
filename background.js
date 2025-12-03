@@ -118,7 +118,7 @@ const SCRAPER_CONFIGS = {
 eBay: {
   baseUrl: "https://www.ebay.co.uk",
 
-  searchUrl: ({ query, category }) => {
+  searchUrl: ({ query, category, model, attributes, ebayFilterSold  }) => {
     // Map your internal categories to eBay categories
     let categoryId = null;
 
@@ -153,13 +153,56 @@ eBay: {
 
     const encoded = encodeURIComponent(query);
 
-    // No category? Use the generic eBay search
+    // Build the base URL based on whether category exists
+    let url;
     if (!categoryId) {
-      return `https://www.ebay.co.uk/sch/i.html?_nkw=${encoded}&_sacat=0&_sop=12&_oac=1`;
+      url = `https://www.ebay.co.uk/sch/i.html?_nkw=${encoded}&_sacat=0&_sop=12&_oac=1&_ipg=240&LH_PrefLoc=1`;
+    } else {
+      url = `https://www.ebay.co.uk/sch/${categoryId}/i.html?_nkw=${encoded}&_sop=12&_oac=1&_ipg=240&LH_PrefLoc=1`;
     }
 
-    // Category present? Use category-specific URL shape
-    return `https://www.ebay.co.uk/sch/${categoryId}/i.html?_nkw=${encoded}&_sop=12&_oac=1`;
+    // Add model filter if provided
+    if (model) {
+      // Normalize: fix "Iphone" inside longer names like "Apple Iphone 14"
+      model = model.replace(/iphone/i, "iPhone");
+
+      // Double encode: first encodeURIComponent, then encode % as %2520
+      const doubleEncoded = encodeURIComponent(model).replace(/%/g, '%25');
+      url += `&Model=${doubleEncoded}`;
+      
+      // Add category if we have a model (eBay requires _dcat with Model filter)
+      if (categoryId) {
+        url += `&_dcat=${categoryId}`;
+      }
+    }
+
+    if (attributes?.storage) {
+      // Normalize: ensure number and "GB", with uppercase and space
+      // E.g. "256gb" or "256 GB" → "256 GB"
+      let storage = attributes.storage.toUpperCase().trim();
+
+      // If it lacks a space between number and GB (like "256GB" or "256GB") insert one
+      storage = storage.replace(/^(\d+)(GB)$/, "$1 $2");
+
+      // Now double-encode storage
+      const doubleEncodedStorage = encodeURIComponent(storage).replace(/%/g, "%25");
+
+      url += `&Storage%2520Capacity=${doubleEncodedStorage}`;
+
+      // Only append _dcat if not already added
+      if (categoryId && !url.includes("&_dcat=")) {
+        url += `&_dcat=${categoryId}`;
+      }
+    }
+
+
+    // Add completed & sold filters if enabled
+    if (ebayFilterSold) {
+      url += "&LH_Sold=1&LH_Complete=1";
+    }
+
+    return url;
+
   },
 
   selectors: {
@@ -409,7 +452,7 @@ async function handleNosposCheckboxUpdate(data, sendResponse) {
 
 
 async function handleScrapeRequest(data, sendResponse) {
-  const { query, competitors, subcategory, category, model, attributes,  } = data;
+  const { query, competitors, subcategory, category, model, attributes, ebayFilterSold   } = data;
   const sessionId = Date.now().toString();
   
   activeSessions.set(sessionId, {
@@ -429,7 +472,7 @@ async function handleScrapeRequest(data, sendResponse) {
       }
       
       const url = typeof config.searchUrl === 'function'
-        ? config.searchUrl({ query, model, subcategory, category, attributes })
+        ? config.searchUrl({ query, model, subcategory, category, attributes, ebayFilterSold })
         : config.searchUrl.replace("{query}", encodeURIComponent(query)); 
 
       const tab = await chrome.tabs.create({ url: "about:blank", active: false });

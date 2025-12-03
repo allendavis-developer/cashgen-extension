@@ -234,16 +234,19 @@ function scrapeEbay(selectors) {
 
       const priceText = priceEl.textContent.trim();
       const price = parsePrice(priceText);
+
+      // Skip anything that isn't a real number
+      if (typeof price !== 'number' || Number.isNaN(price)) return;
+
       const url = urlEl ? urlEl.href : null;
 
-      // Extract item ID after "/itm/"
       let id = null;
       if (url) {
         const match = url.match(/\/itm\/(\d+)/);
         if (match) id = match[1];
       }
 
-      if (title && price) {
+      if (title) {
         results.push({ competitor: "eBay", id, title, price, store: null, url });
       }
     } catch (e) {
@@ -253,6 +256,7 @@ function scrapeEbay(selectors) {
 
   return results;
 }
+
 
 
 function parsePrice(text) {
