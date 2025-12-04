@@ -1,4 +1,34 @@
 // background.js - Service Worker for Chrome Extension
+const laptopCategoryMap = {
+  "apple mac": "863",
+  "chrome os": "1182",
+  "other os": "1066",
+  "windows": "1065",
+};
+
+const tabletCategoryMap = {
+  "ipad": "967",
+  "android": "1027",
+  "windows": "1026",
+};
+
+const cameraCategoryMap = {
+  "compact system": "985",
+  "compact": "948",
+  "digital slr": "950",
+};
+
+const portableEntertainmentCategoryMap = {
+  "apple": "1171",
+  "headphones": "973",
+};
+
+const wearableTechCategoryMap = {
+  "smart watch": "1043",
+  "smartwatch": "1043",
+  "fitness tracker": "1043",
+  "wearable": "1043",
+};
 
 const SCRAPER_CONFIGS = {
   CashConverters: {
@@ -66,54 +96,85 @@ const SCRAPER_CONFIGS = {
     }
   },
   CEX: {
-    baseUrl: "https://uk.webuy.com",
-    searchUrl: ({ query, model,subcategory, category, attributes }) => {
+      baseUrl: "https://uk.webuy.com",
+      searchUrl: ({ query, model, subcategory, category, attributes }) => {
 
-      // Build base URL
-      let url = `https://uk.webuy.com/search?stext=${encodeURIComponent(query)}`;
+        // Build base URL
+        let url = `https://uk.webuy.com/search?stext=${encodeURIComponent(query)}`;
 
-      // Append storage filter if exists
-      if (attributes?.storage && category == "smartphones and mobile") {
-        url += `&Capacity=${encodeURIComponent(attributes.storage)}`;
-      }
-      
-      // Map category using switch
-      if (category) {
-        switch (category.toLowerCase()) {
-          case "smartphones and mobile":
-            url += '&superCatName=Phones';
-            url += `&Grade=B`;
-            break; 
-          case "games (discs & cartridges)":
-            url += "&superCatName=Gaming";
-            if (subcategory.toLowerCase() === "switch games") {
-              url += `&categoryFriendlyName=Switch+Games`;
-            } 
+        // Handle subcategory mapping
+        if (subcategory) {
+          const sub = subcategory.toLowerCase();
 
-            console.log(subcategory);
-            break;
-          default:
+          // Handle laptops
+          if (sub.includes("laptop")) {
+            const matchedKey = Object.keys(laptopCategoryMap).find((k) =>
+              sub.includes(k)
+            );
+            const catId = matchedKey ? laptopCategoryMap[matchedKey] : "";
+            url += `&categoryName=${encodeURIComponent(subcategory)}&categoryIds=${catId}`;
+          }
+
+          // Handle tablets
+          else if (sub.includes("tablet")) {
+            const matchedKey = Object.keys(tabletCategoryMap).find((k) =>
+              sub.includes(k)
+            );
+            const catId = matchedKey ? tabletCategoryMap[matchedKey] : "";
+            url += `&categoryName=${encodeURIComponent(subcategory)}&categoryIds=${catId}`;
+          }
+
+          // Handle cameras
+          else if (sub.includes("camera")) {
+            const matchedKey = Object.keys(cameraCategoryMap).find((k) =>
+              sub.includes(k)
+            );
+            const catId = matchedKey ? cameraCategoryMap[matchedKey] : "";
+            url += `&categoryName=${encodeURIComponent(subcategory)}&categoryIds=${catId}`;
+          }
+
+          // Handle portable entertainment
+          else if (
+            sub.includes("headphones") ||
+            sub.includes("earphones") ||
+            sub.includes("portable entertainment")
+          ) {
+            const matchedKey = Object.keys(portableEntertainmentCategoryMap).find((k) =>
+              sub.includes(k)
+            );
+            const catId = matchedKey ? portableEntertainmentCategoryMap[matchedKey] : "";
+            url += `&categoryName=${encodeURIComponent(subcategory)}&categoryIds=${catId}`;
+          }
+          else {
+            url += `&categoryFriendlyName=${encodeURIComponent(subcategory)}`
+          }
         }
-      }
+        
+        // Map category using switch
+        if (category) {
+          switch (category.toLowerCase()) {
+            case "smartphones and mobile":
+              url += '&superCatName=Phones';
+              if (attributes?.storage) {
+                url += `&Capacity=${encodeURIComponent(attributes.storage)}`;
+              }
+              break; 
+            case "games (discs/cartridges)":
+              url += "&superCatName=Gaming";
+              break;
+            default:
+          }
+        }
 
-      // Add brand filter for ipads subcategory
-      if (subcategory && subcategory.toLowerCase() === "ipads") {
-        if (subcategory.toLowerCase() === "ipads") {
-            url += `&categoryFriendlyName=Apple+iPad`;
-        } 
-      }
-
-
-      return url;
+        return url;
+      },
+      selectors: {
+        container: ".search-product-card",
+        title: ".content .card-title a",
+        price: ".content .product-main-price",
+        url: ".content .card-title a",
+      },
     },
-    selectors: {
-      container: ".wrapper-box",
-      title: ".content .card-title a",
-      price: ".content .product-main-price",
-      url: ".content .card-title a",
-      grade: ".grade-letter"
-    }
-  },
 
 eBay: {
   baseUrl: "https://www.ebay.co.uk",

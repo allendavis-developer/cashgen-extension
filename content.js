@@ -31,11 +31,11 @@ async function scrapePage(competitor, selectors, sessionId) {
   try {
     // TODO: Can you just turn all of this into one function man
     if (competitor === "CashConverters") {
-      results.push(...scrapeCashConverters(selectors));
+      results.push(...await fetchAllCashConvertersResults(selectors));
     } else if (competitor === "eBay") {
       results.push(...scrapeEbay(selectors));
     } else if (competitor === "CashGenerator") {
-      results.push(...scrapeCashGenerator(selectors));
+      results.push(...await scrapeCashGenerator(selectors));
     } else {
       results.push(...scrapeCEX(competitor, selectors));
     }
@@ -54,50 +54,91 @@ async function scrapePage(competitor, selectors, sessionId) {
   });
 }
 
-function scrapeCashConverters(selectors) {
-  const results = [];
-  const cards = document.querySelectorAll(selectors.container);
+async function fetchAllCashConvertersResults() {
+  let allResults = [];
+  let page = 1;
+  let hasMore = true;
 
-  cards.forEach(card => {
+  while (hasMore) {
+    // Take current page URL and replace "search-results" with "c3api/search/results"
+    // Add or replace the page parameter
+    let apiUrl = new URL(window.location.href);
+    apiUrl.pathname = apiUrl.pathname.replace("search-results", "c3api/search/results");
+    apiUrl.searchParams.set("page", page);
+
+    const headers = {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.5993.117 Safari/537.36",
+      "Accept": "application/json, text/javascript, */*; q=0.01",
+      "Referer": "https://www.cashconverters.co.uk/",
+    };
+
     try {
-      const titleEl = card.querySelector(selectors.title);
-      const priceEl = card.querySelector(selectors.price);
-      const shopEl = card.querySelector(selectors.shop);
-      const urlEl = card.querySelector('a');
+      const response = await fetch(apiUrl.toString(), { headers });
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
-      if (!titleEl || !priceEl) return;
+      const data = await response.json();
+      const results = parseCashConvertersResults(data);
 
-      const title = titleEl.textContent.trim();
-      const priceText = priceEl.textContent.trim();
-      const price = parsePrice(priceText);
-      const store = shopEl ? shopEl.textContent.trim() : null;
-
-      let url = urlEl ? urlEl.href : null;
-      if (url && url.startsWith('/')) {
-        url = 'https://www.cashconverters.co.uk' + url;
+      if (results.length === 0) {
+        hasMore = false; // Stop loop if no more results
+      } else {
+        allResults.push(...results);
+        page++;
       }
-
-      // Extract ID from URL
-      let id = null;
-      if (urlEl && urlEl.getAttribute('href')) {
-        const href = urlEl.getAttribute('href');
-        const match = href.match(/\/(\d+)(?:\/)?$/);
-        if (match) id = match[1];
-      }
-
-      if (title && price) {
-        results.push({ competitor: "CashConverters", id, title, price, store, url });
-      }
-    } catch (e) {
-      console.error("Error parsing CashConverters card:", e);
+    } catch (err) {
+      console.error("Failed to fetch CashConverters API:", err);
+      hasMore = false;
     }
-  });
+  }
 
-  return results;
+  return allResults;
+}
+
+function parseCashConvertersResults(payload) {
+  const items = payload?.Value?.ProductList?.ProductListItems || [];
+
+  return items.map(raw => {
+    const title = raw.Title || "";
+    const price = raw.Sp || 0;
+    const url = raw.Url || "";
+    const store = raw.StoreNameWithState || "";
+    const condition = raw.Condition || raw.ProductCondition || "";
+    const stable_id = raw.Code || null;
+
+    return {
+      competitor: "CashConverters",
+      stable_id,
+      title,
+      price,
+      description: "",
+      condition,
+      store,
+      url: url.startsWith("/") ? `https://www.cashconverters.co.uk${url}` : url,
+    };
+  });
+}
+
+async function autoScroll() {
+  return new Promise((resolve) => {
+    let totalHeight = 0;
+    const distance = 400; // pixels to scroll per step
+    const timer = setInterval(() => {
+      const scrollHeight = document.body.scrollHeight;
+      window.scrollBy(0, distance);
+      totalHeight += distance;
+
+      if (totalHeight >= scrollHeight) {
+        clearInterval(timer);
+        resolve();
+      }
+    }, 100); // wait 100ms per scroll
+  });
 }
 
 
-function scrapeCashGenerator(selectors) {
+async function scrapeCashGenerator(selectors) {
+  await autoScroll(); // make sure all products are loaded
+
   const results = [];
   const cards = document.querySelectorAll('.snize-product');
 
@@ -130,6 +171,8 @@ function scrapeCashGenerator(selectors) {
         return;
       }
 
+      console.log("scraping this ", card);
+
 
       let url = urlEl ? urlEl.getAttribute('href') : null;
       if (url && url.startsWith('/')) {
@@ -158,20 +201,13 @@ function scrapeCEX(competitor, selectors) {
 
   cards.forEach(card => {
     try {
-
-      const gradeEl = card.querySelector(selectors.grade);
-      const grade = gradeEl ? gradeEl.textContent.trim() : null;
-
       const titleEl = card.querySelector(selectors.title);
       const priceEl = card.querySelector(selectors.price);
       const urlEl = card.querySelector(selectors.url);
 
-
       if (!titleEl || !priceEl) return;
 
       const title = titleEl.textContent.trim();
-      console.log(card, title);
-
       const priceText = priceEl.textContent.trim();
       const price = parsePrice(priceText);
 
@@ -188,16 +224,17 @@ function scrapeCEX(competitor, selectors) {
         if (match) id = decodeURIComponent(match[1]);
       }
 
-      if (!grade || grade === 'B' || /\bB\b/.test(title)) {
+      // Check grade in title
+      const gradeMatch = title.match(/\b([A-C])\b/i);
+      if (!gradeMatch || gradeMatch[1].toUpperCase() === 'B') {
         results.push({ competitor, id, title, price, store: null, url });
       }
 
       console.log({
-      title: titleEl?.textContent.trim(),
-      price: priceEl?.textContent.trim(),
-      href: urlEl?.getAttribute('href'),
-      grade
-    });
+        title,
+        price: priceText,
+        href: urlEl?.getAttribute('href'),
+      });
 
     } catch (e) {
       console.error("Error parsing CEX card:", e);
@@ -208,6 +245,7 @@ function scrapeCEX(competitor, selectors) {
 
   return results;
 }
+
 
 
 function scrapeEbay(selectors) {
@@ -256,7 +294,6 @@ function scrapeEbay(selectors) {
 
   return results;
 }
-
 
 
 function parsePrice(text) {
