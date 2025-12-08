@@ -179,7 +179,7 @@ const SCRAPER_CONFIGS = {
 eBay: {
   baseUrl: "https://www.ebay.co.uk",
 
-  searchUrl: ({ query, category, model, attributes, ebayFilterSold  }) => {
+  searchUrl: ({ query, category, model, attributes, ebayFilterSold, ebayFilterUsed, ebayFilterUKOnly  }) => {
     // Map your internal categories to eBay categories
     let categoryId = null;
 
@@ -217,9 +217,9 @@ eBay: {
     // Build the base URL based on whether category exists
     let url;
     if (!categoryId) {
-      url = `https://www.ebay.co.uk/sch/i.html?_nkw=${encoded}&_sacat=0&_sop=12&_oac=1&_ipg=240&LH_PrefLoc=1`;
+      url = `https://www.ebay.co.uk/sch/i.html?_nkw=${encoded}&_sacat=0&_sop=12&_oac=1&_ipg=240`;
     } else {
-      url = `https://www.ebay.co.uk/sch/${categoryId}/i.html?_nkw=${encoded}&_sop=12&_oac=1&_ipg=240&LH_PrefLoc=1`;
+      url = `https://www.ebay.co.uk/sch/${categoryId}/i.html?_nkw=${encoded}&_sop=12&_oac=1&_ipg=240`;
     }
 
     // Add model filter if provided
@@ -256,10 +256,17 @@ eBay: {
       }
     }
 
-
-    // Add completed & sold filters if enabled
+    // add the optional filters
     if (ebayFilterSold) {
       url += "&LH_Sold=1&LH_Complete=1";
+    }
+
+    if (ebayFilterUsed) {
+      url += `&LH_ItemCondition=3000`;
+    }
+
+    if (ebayFilterUKOnly) {
+      url += `&LH_PrefLoc=1`;
     }
 
     return url;
@@ -513,7 +520,7 @@ async function handleNosposCheckboxUpdate(data, sendResponse) {
 
 
 async function handleScrapeRequest(data, sendResponse) {
-  const { query, competitors, subcategory, category, model, attributes, ebayFilterSold   } = data;
+  const { query, competitors, subcategory, category, model, attributes, ebayFilterSold, ebayFilterUsed, ebayFilterUKOnly   } = data;
   const sessionId = Date.now().toString();
   
   activeSessions.set(sessionId, {
@@ -533,7 +540,7 @@ async function handleScrapeRequest(data, sendResponse) {
       }
       
       const url = typeof config.searchUrl === 'function'
-        ? config.searchUrl({ query, model, subcategory, category, attributes, ebayFilterSold })
+        ? config.searchUrl({ query, model, subcategory, category, attributes, ebayFilterSold, ebayFilterUsed, ebayFilterUKOnly })
         : config.searchUrl.replace("{query}", encodeURIComponent(query)); 
 
       const tab = await chrome.tabs.create({ url: "about:blank", active: false });
