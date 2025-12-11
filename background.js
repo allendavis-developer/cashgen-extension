@@ -223,7 +223,7 @@ eBay: {
     }
 
     // Add model filter if provided
-    if (model) {
+    if (model && category == "smartphones and mobile") {
       // Normalize: fix "Iphone" inside longer names like "Apple Iphone 14"
       model = model.replace(/iphone/i, "iPhone");
 

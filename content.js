@@ -33,7 +33,7 @@ async function scrapePage(competitor, selectors, sessionId) {
     if (competitor === "CashConverters") {
       results.push(...await fetchAllCashConvertersResults(selectors));
     } else if (competitor === "eBay") {
-      results.push(...scrapeEbay(selectors));
+      results.push(...await scrapeEbay(selectors));
     } else if (competitor === "CashGenerator") {
       results.push(...await scrapeCashGenerator(selectors));
     } else {
@@ -246,9 +246,39 @@ function scrapeCEX(competitor, selectors) {
   return results;
 }
 
+function waitForElement(selector, timeout = 5000) {
+  return new Promise((resolve, reject) => {
+    // Check if element already exists
+    const element = document.querySelector(selector);
+    if (element) {
+      resolve(element);
+      return;
+    }
 
+    // Set up MutationObserver to watch for the element
+    const observer = new MutationObserver(() => {
+      const element = document.querySelector(selector);
+      if (element) {
+        observer.disconnect();
+        clearTimeout(timer);
+        resolve(element);
+      }
+    });
 
-function scrapeEbay(selectors) {
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true
+    });
+
+    // Set timeout to reject if element doesn't appear
+    const timer = setTimeout(() => {
+      observer.disconnect();
+      reject(new Error(`Element ${selector} not found within ${timeout}ms`));
+    }, timeout);
+  });
+}
+
+async function scrapeEbay(selectors) {
   const results = [];
   const cards = document.querySelectorAll(selectors.container || 'li.s-card');
 
@@ -291,6 +321,18 @@ function scrapeEbay(selectors) {
       console.error("Error parsing eBay card:", e);
     }
   });
+
+  // After scraping, click the more filters button
+  const moreFiltersBtn = document.querySelector(
+    'body > div.srp-main.srp-main--isLarge > div.srp-rail__left > ul > li.x-refine__main__list--more button'
+  );
+
+  if (moreFiltersBtn) {
+    moreFiltersBtn.click();
+    // Wait for the overlay to appear
+    await waitForElement('#x-overlay__form');
+  }
+
 
   return results;
 }
