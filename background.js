@@ -445,7 +445,7 @@ async function handleWebEposListing(data, sendResponse) {
 
 
 async function handleNosposCheckboxUpdate(data, sendResponse) {
-  const { serial_number } = data;
+  const { serial_number, price } = data;
 
   console.log(`[NOSPOS] Updating checkbox for barcode ${serial_number}...`);
 
@@ -497,7 +497,7 @@ async function handleNosposCheckboxUpdate(data, sendResponse) {
           setTimeout(() => {
             chrome.tabs.sendMessage(nosposTab.id, {
               action: "updateExternallyListed",
-              data: { serial_number }
+              data: { serial_number, price: data.price }
             }, (response) => {
               if (chrome.runtime.lastError) {
                 console.error("[NOSPOS] Error:", chrome.runtime.lastError);

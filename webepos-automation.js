@@ -265,21 +265,22 @@ async function waitForSaveCompletion() {
   });
 }
 
-async function updateNosposItem(serial_number) {
-  console.log(`[WebEpos] Opening NOSPOS for barcode ${serial_number}...`);
+async function updateNosposItem(serial_number, price) {
+  console.log(`[WebEpos] Opening NOSPOS for barcode ${serial_number} with price ${price}...`);
 
   try {
-    // Open NOSPOS in a new tab
     const nosposWindow = window.open("https://nospos.com/stock/search", "_blank");
-    
+
     if (!nosposWindow) {
       throw new Error("Failed to open NOSPOS window - popup might be blocked");
     }
 
-    // Send message to background script to handle NOSPOS automation
     chrome.runtime.sendMessage({
       action: "updateNosposCheckbox",
-      data: { serial_number }
+      data: {
+        serial_number,
+        price   // ← new retail price sent to background/NOSPOS
+      }
     });
 
     console.log("[WebEpos] NOSPOS update initiated");
@@ -289,6 +290,7 @@ async function updateNosposItem(serial_number) {
     return false;
   }
 }
+
 
 // Listen for automation requests
 chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
@@ -308,7 +310,10 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
       // If saved successfully and has serial number, update NOSPOS
       if (result.success && message.data.serial_number) {
         await sleep(2000);
-        await updateNosposItem(message.data.serial_number);
+        await updateNosposItem(
+          message.data.serial_number,
+          message.data.price
+        );
       }
 
       // Send a separate "completion" message back to background

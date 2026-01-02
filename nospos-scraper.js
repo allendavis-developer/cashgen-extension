@@ -185,7 +185,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.action === "updateExternallyListed") {
-    handleExternallyListedUpdate(message.data.serial_number, sendResponse);
+    handleExternallyListedUpdate(message.data.serial_number, message.data.price, sendResponse);
     return true;
   }
 
@@ -214,9 +214,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 // ----- Externally listed update flow (unchanged) -----
-async function handleExternallyListedUpdate(serial_number) {
-  console.log(`[NOSPOS] Updating externally listed for ${serial_number}`);
-  await storageSet({ pendingExternallyListed: serial_number });
+async function handleExternallyListedUpdate(serial_number, retail_price) {
+  console.log(
+    `[NOSPOS] Updating externally listed for ${serial_number} with price ${retail_price}`
+  );
+
+  await storageSet({
+    pendingExternallyListed: {
+      serial_number,
+      retail_price
+    }
+  });
 
   try {
     await waitForLoad();
@@ -265,6 +273,35 @@ async function handleExternallyListedUpdate(serial_number) {
     } else {
       console.log("[NOSPOS] Already marked as externally listed");
     }
+
+    // --- Update retail price if provided ---
+    if (retail_price != null && retail_price !== "") {
+      await waitForSelector("#stock-retail_price", 5000);
+
+      const retailInput = document.querySelector("#stock-retail_price");
+      if (!retailInput) {
+        throw new Error("Retail price input not found");
+      }
+
+      const currentValue = retailInput.value.trim();
+      const newValue = Number(retail_price).toFixed(2);
+
+      if (currentValue !== newValue) {
+        retailInput.focus();
+        retailInput.value = newValue;
+
+        // Trigger framework listeners (Rails + JS forms care about this)
+        retailInput.dispatchEvent(new Event("input", { bubbles: true }));
+        retailInput.dispatchEvent(new Event("change", { bubbles: true }));
+        retailInput.blur();
+
+        console.log(`[NOSPOS] Retail price updated: ${currentValue} → ${newValue}`);
+        changed = true;
+      } else {
+        console.log("[NOSPOS] Retail price already correct");
+      }
+    }
+
 
     if (changed) {
       const saveButton = document.querySelector("button.btn.btn-blue[type='submit']");
@@ -316,10 +353,10 @@ async function handleExternallyListedUpdate(serial_number) {
     // No active session; but still check pendingExternallyListed
     const pending = await storageGet("pendingExternallyListed");
     if (pending && pending.pendingExternallyListed) {
-      const serial = pending.pendingExternallyListed;
+      const { serial_number, retail_price } = pending.pendingExternallyListed;
       if (/\/stock\/\d+\/edit/.test(window.location.pathname)) {
-        console.log(`[NOSPOS] Resuming pending externally listed update for ${serial}`);
-        handleExternallyListedUpdate(serial);
+        console.log(`[NOSPOS] Resuming pending externally listed update for ${serial_number}`);
+        handleExternallyListedUpdate(serial_number, retail_price);
       } else {
         // if not on edit, let handleExternallyListedUpdate navigate/search when triggered by message
         // or clear if it's obviously irrelevant
@@ -465,10 +502,10 @@ async function processNextBarcode() {
 (async function restorePendingExternallyListed() {
   const pending = await storageGet("pendingExternallyListed");
   if (pending && pending.pendingExternallyListed) {
-    const serial = pending.pendingExternallyListed;
+    const { serial_number, retail_price } = pending.pendingExternallyListed;
     if (/\/stock\/\d+\/edit/.test(window.location.pathname)) {
-      console.log(`[NOSPOS] Resuming pending externally listed update for ${serial}`);
-      handleExternallyListedUpdate(serial);
+      console.log(`[NOSPOS] Resuming pending externally listed update for ${serial_number}`);
+      handleExternallyListedUpdate(serial_number, retail_price);
     } else {
       // leave it in storage for resume logic or other triggers
     }
