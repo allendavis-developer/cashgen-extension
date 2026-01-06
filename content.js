@@ -295,6 +295,9 @@ async function scrapeEbay(selectors) {
                     card.querySelector('a.su-link') ||
                     card.querySelector('a[href*="/itm/"]');
 
+      const imgEl = card.querySelector('img.s-card__image');
+      const image = imgEl ? imgEl.src : null;
+
       if (!titleEl || !priceEl) return;
 
       let title = titleEl.textContent.trim();
@@ -315,7 +318,7 @@ async function scrapeEbay(selectors) {
       }
 
       if (title) {
-        results.push({ competitor: "eBay", id, title, price, store: null, url });
+        results.push({ competitor: "eBay", id, title, price, store: null, url, image });
       }
     } catch (e) {
       console.error("Error parsing eBay card:", e);

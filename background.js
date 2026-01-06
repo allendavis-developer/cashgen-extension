@@ -518,9 +518,41 @@ async function handleNosposCheckboxUpdate(data, sendResponse) {
   }
 }
 
+function applyEbayFilters(url, {
+  ebayFilterSold,
+  ebayFilterUsed,
+  ebayFilterUKOnly
+}) {
+  if (ebayFilterSold) {
+    url += "&LH_Sold=1&LH_Complete=1";
+  }
+
+  if (ebayFilterUsed) {
+    url += "&LH_ItemCondition=3000";
+  }
+
+  if (ebayFilterUKOnly) {
+    url += "&LH_PrefLoc=1";
+  }
+
+  return url;
+}
+
 
 async function handleScrapeRequest(data, sendResponse) {
-  const { query, competitors, subcategory, category, model, attributes, ebayFilterSold, ebayFilterUsed, ebayFilterUKOnly   } = data;
+  const {
+    query,
+    competitors,
+    subcategory,
+    category,
+    model,
+    attributes,
+    ebayFilterSold,
+    ebayFilterUsed,
+    ebayFilterUKOnly,
+    directUrl   // 👈 NEW
+  } = data;
+
   const sessionId = Date.now().toString();
   
   activeSessions.set(sessionId, {
@@ -539,9 +571,38 @@ async function handleScrapeRequest(data, sendResponse) {
         return null;
       }
       
-      const url = typeof config.searchUrl === 'function'
-        ? config.searchUrl({ query, model, subcategory, category, attributes, ebayFilterSold, ebayFilterUsed, ebayFilterUKOnly })
-        : config.searchUrl.replace("{query}", encodeURIComponent(query)); 
+      let url;
+
+      if (directUrl) {
+        // Safety: only allow direct URLs for eBay
+        if (competitor !== "eBay") {
+          console.warn(`[Scraper] Direct URL ignored for ${competitor}`);
+          return null;
+        }
+
+        url = directUrl;
+
+        // 👇 Append supported eBay filters
+        url = applyEbayFilters(url, {
+          ebayFilterSold,
+          ebayFilterUsed,
+          ebayFilterUKOnly
+        });
+      } else {
+        url = typeof config.searchUrl === "function"
+          ? config.searchUrl({
+              query,
+              model,
+              subcategory,
+              category,
+              attributes,
+              ebayFilterSold,
+              ebayFilterUsed,
+              ebayFilterUKOnly
+            })
+          : config.searchUrl.replace("{query}", encodeURIComponent(query));
+      }
+ 
 
       const tab = await chrome.tabs.create({ url: "about:blank", active: false });
 
