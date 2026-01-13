@@ -282,7 +282,25 @@ async function scrapeEbay(selectors) {
   const results = [];
   const cards = document.querySelectorAll(selectors.container || 'li.s-card');
 
-  cards.forEach(card => {
+  const countEl = document.querySelector(
+    '#mainContent .srp-controls__count span.BOLD'
+  );
+
+  let totalResults = null;
+
+  if (countEl) {
+    const n = parseInt(countEl.textContent.replace(/[^\d]/g, ''), 10);
+    if (!Number.isNaN(n)) totalResults = n;
+  }
+
+  const maxCards =
+  typeof totalResults === 'number'
+    ? Math.min(cards.length, totalResults)
+    : cards.length;
+
+  for (let i = 0; i < maxCards; i++) {
+    const card = cards[i];
+
     try {
       const titleEl = card.querySelector('.s-card__title .su-styled-text.primary') ||
                       card.querySelector('.s-card__title') ||
@@ -298,7 +316,14 @@ async function scrapeEbay(selectors) {
       const imgEl = card.querySelector('img.s-card__image');
       const image = imgEl ? imgEl.src : null;
 
-      if (!titleEl || !priceEl) return;
+      const soldEl =
+        card.querySelector('.s-card__caption .su-styled-text.positive') ||
+        card.querySelector('.su-styled-text.positive.default');
+
+      const soldText = soldEl ? soldEl.textContent.trim() : null;
+
+
+      if (!titleEl || !priceEl) continue;
 
       let title = titleEl.textContent.trim();
       title = title.replace(/^New listing\s*/i, '').trim();
@@ -306,8 +331,7 @@ async function scrapeEbay(selectors) {
       const priceText = priceEl.textContent.trim();
       const price = parsePrice(priceText);
 
-      // Skip anything that isn't a real number
-      if (typeof price !== 'number' || Number.isNaN(price)) return;
+      if (typeof price !== 'number' || Number.isNaN(price)) continue;
 
       const url = urlEl ? urlEl.href : null;
 
@@ -318,22 +342,21 @@ async function scrapeEbay(selectors) {
       }
 
       if (title) {
-        results.push({ competitor: "eBay", id, title, price, store: null, url, image });
+        results.push({
+          competitor: "eBay",
+          id,
+          title,
+          price,
+          store: null,
+          url,
+          image,
+          sold: soldText // null when not present
+        });
       }
+
     } catch (e) {
       console.error("Error parsing eBay card:", e);
     }
-  });
-
-  // After scraping, click the more filters button
-  const moreFiltersBtn = document.querySelector(
-    'body > div.srp-main.srp-main--isLarge > div.srp-rail__left > ul > li.x-refine__main__list--more button'
-  );
-
-  if (moreFiltersBtn) {
-    moreFiltersBtn.click();
-    // Wait for the overlay to appear
-    await waitForElement('#x-overlay__form');
   }
 
 
