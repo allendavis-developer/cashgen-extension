@@ -582,12 +582,12 @@ async function handleScrapeRequest(data, sendResponse) {
 
         url = directUrl;
 
-        // // 👇 Append supported eBay filters
-        // url = applyEbayFilters(url, {
-        //   ebayFilterSold,
-        //   ebayFilterUsed,
-        //   ebayFilterUKOnly
-        // });
+        // 👇 Append supported eBay filters
+        url = applyEbayFilters(url, {
+          ebayFilterSold,
+          ebayFilterUsed,
+          ebayFilterUKOnly
+        });
       } else {
         url = typeof config.searchUrl === "function"
           ? config.searchUrl({
